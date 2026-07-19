@@ -1,0 +1,1702 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>医療タイムトラッカー</title>
+<style>
+  :root{
+    --bg:#f4f6f9; --card:#ffffff; --ink:#1a2433; --sub:#66738a;
+    --line:#dde3ec; --accent:#1565c0; --green:#2e7d32; --amber:#ef6c00; --red:#c62828;
+    --prep:#00897b;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  body{margin:0; font-family:"Hiragino Sans","Yu Gothic UI",Meiryo,sans-serif; background:var(--bg); color:var(--ink);}
+  header{position:sticky; top:0; z-index:20; background:var(--card); border-bottom:1px solid var(--line);
+    display:flex; align-items:center; gap:10px; padding:10px 14px; flex-wrap:wrap;}
+  header h1{font-size:17px; margin:0; flex:1; min-width:180px;}
+  .badge{font-size:12px; padding:4px 10px; border-radius:20px; font-weight:600;}
+  .badge.local{background:#eceff1; color:#546e7a;}
+  .badge.online{background:#e8f5e9; color:var(--green);}
+  .badge.err{background:#ffebee; color:var(--red);}
+  #muteBtn.muted{background:#fff3e0; border-color:var(--amber); color:var(--amber); font-weight:800;}
+  button{font-family:inherit; cursor:pointer;}
+  .btn{border:1px solid var(--line); background:var(--card); border-radius:8px; padding:9px 14px; font-size:14px;}
+  .btn.primary{background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600;}
+  .btn.small{padding:5px 10px; font-size:12px;}
+  main{max-width:980px; margin:0 auto; padding:14px;}
+  .empty{color:var(--sub); text-align:center; padding:60px 10px; font-size:15px;}
+
+  /* 症例数＋部署ボードをスクロール時も上部に固定 */
+  .topboard{position:sticky; top:57px; z-index:15; background:var(--bg);
+    padding:8px 0 2px; box-shadow:0 6px 12px -8px rgba(20,30,50,.25);}
+
+  /* 進行中の症例数 */
+  .counts{display:flex; align-items:center; gap:9px; flex-wrap:wrap; margin-bottom:12px;}
+  .count-total{font-size:16px; font-weight:900; color:var(--sub); background:var(--card);
+    border:1px solid var(--line); border-radius:18px; padding:8px 18px;}
+  .count-total.active{font-size:19px; color:#fff; background:var(--accent); border-color:var(--accent);
+    padding:10px 22px; box-shadow:0 3px 14px rgba(21,101,192,.5);
+    animation:pulse 1.5s ease-in-out infinite;}
+  .count-chip{color:#fff; border-radius:18px; padding:8px 16px; font-size:15px; font-weight:800;
+    box-shadow:0 2px 8px rgba(0,0,0,.2);}
+  .count-chip b{font-size:20px; margin-left:5px;}
+
+  /* 部署ステータスボード */
+  .depts{display:flex; gap:12px; flex-wrap:wrap; margin-bottom:16px;}
+  .dept{background:var(--card); border:1px solid var(--line); border-radius:14px; padding:0; flex:1; min-width:250px; overflow:hidden;}
+  .dept-cur{display:flex; justify-content:space-between; align-items:center; gap:10px; padding:14px 18px; color:#fff;}
+  .dept-cur .dname{font-size:15px; font-weight:800; opacity:.95; white-space:nowrap;}
+  .dept-cur .dstat{font-size:26px; font-weight:900; letter-spacing:1px; text-align:right;}
+  .dept-cur.urgent{animation:blink 1.1s step-end infinite;}
+  .dept-body{display:flex; align-items:center; flex-wrap:wrap; gap:6px; padding:9px 14px;}
+  .dept-body .lap{margin-left:auto;}
+  .dst{border:2px solid; border-radius:14px; padding:5px 12px; font-size:12.5px; font-weight:800;}
+  .dst.on{box-shadow:0 1px 5px rgba(0,0,0,.25);}
+
+  .case{background:var(--card); border:1px solid var(--line); border-radius:14px; margin-bottom:18px; overflow:hidden;}
+  /* 目標達成した症例は金色に輝く */
+  @keyframes achglow{0%,100%{box-shadow:0 0 10px rgba(249,168,37,.35);}50%{box-shadow:0 0 28px rgba(249,168,37,.75);}}
+  .case.achieved{border:2px solid #f9a825; animation:achglow 2.2s ease-in-out infinite;}
+  .case.achieved .case-head{background:linear-gradient(135deg,#fffdf5,#fff8e1); position:relative; overflow:hidden;}
+  .case.achieved .case-head::after{content:""; position:absolute; top:0; left:-70%; width:45%; height:100%;
+    background:linear-gradient(105deg,transparent,rgba(255,236,150,.8),transparent); animation:achshine 3s ease-in-out infinite; pointer-events:none;}
+  @keyframes achshine{0%{left:-70%;}45%,100%{left:140%;}}
+  .ach-badge{font-size:15px; font-weight:900; color:#7a5200; white-space:nowrap;
+    background:linear-gradient(135deg,#ffe082,#ffd54f,#ffecb3); padding:8px 18px; border-radius:20px;
+    box-shadow:0 2px 10px rgba(249,168,37,.55); animation:achbadge 1.8s ease-in-out infinite;}
+  @keyframes achbadge{0%,100%{transform:scale(1) rotate(0);}50%{transform:scale(1.07) rotate(-1.5deg);}}
+  .case.achieved .clock.done{background:linear-gradient(135deg,#f9a825,#ffd54f); color:#5d4000;}
+  .case-head{display:flex; align-items:center; gap:12px; padding:12px 14px; border-bottom:1px solid var(--line); flex-wrap:wrap;}
+  .case-label{font-size:26px; font-weight:900; border:none; background:transparent; width:240px; color:var(--ink);}
+  .case-label:focus{outline:1px solid var(--accent); border-radius:4px;}
+  .proto-badge{font-size:18px; font-weight:900; color:var(--accent); background:#e3f2fd; padding:9px 22px; border-radius:22px; letter-spacing:1px; box-shadow:0 2px 6px rgba(0,0,0,.18);}
+  .now-status{font-size:13px; color:var(--sub); flex:1; min-width:140px;}
+  .now-status.live{color:var(--accent); font-weight:800; font-size:14px; animation:pulse 1.4s ease-in-out infinite;}
+  .clock{font-variant-numeric:tabular-nums; font-size:52px; font-weight:900; letter-spacing:2px;
+    padding:6px 22px; border-radius:14px; text-align:center; line-height:1.1;}
+  .clock.wait{color:var(--sub); font-size:20px; font-weight:600; padding:14px 22px;}
+  .clock.ok{color:#fff; background:var(--green); box-shadow:0 2px 8px rgba(46,125,50,.35);}
+  .clock.warn{color:#fff; background:var(--amber); box-shadow:0 2px 8px rgba(239,108,0,.4);}
+  .clock.over{color:#fff; background:var(--red); animation:blink 1s step-end infinite; box-shadow:0 2px 10px rgba(198,40,40,.5);}
+  .clock.done{color:#fff; background:var(--accent);}
+  @keyframes blink{50%{opacity:.55;}}
+  @keyframes beat{0%{transform:scale(1);}35%{transform:scale(1.045);}100%{transform:scale(1);}}
+  @keyframes shake{0%,100%{transform:translateX(0);}20%{transform:translateX(-4px);}40%{transform:translateX(4px);}60%{transform:translateX(-3px);}80%{transform:translateX(3px);}}
+  .clock.beat{animation:beat .5s ease-out;}
+  .clock.warn.beat{animation:beat .45s ease-out;}
+  .clock.over.beat{animation:blink 1s step-end infinite, shake .5s ease-in-out;}
+  .clock-sub{font-size:12px; color:var(--sub); text-align:center; margin-top:3px; font-weight:600;}
+
+  /* 工程フロー（チップ） */
+  .flow{display:flex; flex-wrap:wrap; gap:5px; padding:9px 14px; border-bottom:1px solid var(--line); background:#fafbfd;}
+  .chip{font-size:12px; padding:4px 10px; border-radius:14px; background:#eceff1; color:#8a97aa; font-weight:600; white-space:nowrap;}
+  .chip.done{background:#e8f5e9; color:var(--green);}
+  .chip.skipped{background:#eceff1; color:#b0bac8; text-decoration:line-through;}
+  .chip.active{background:var(--accent); color:#fff; animation:pulse 1.6s ease-in-out infinite;}
+  .chip.next{background:#fff8e1; color:var(--amber); border:1.5px dashed var(--amber);}
+  @keyframes pulse{50%{opacity:.65;}}
+  .flow.preps{background:#e0f2ef; border-top:2px solid var(--prep); border-bottom:2px solid var(--prep);
+    padding:12px 14px; gap:10px; align-items:center;}
+  .preps-label{font-size:13px; color:var(--prep); font-weight:800; margin-right:6px;}
+  .prep-chip{font-size:16px; padding:12px 20px; border-radius:24px; border:2.5px dashed var(--amber);
+    background:#fff8e1; color:var(--amber); font-weight:800; box-shadow:0 1px 3px rgba(0,0,0,.12);}
+  .prep-chip.on{background:var(--prep); color:#fff; border:2.5px solid var(--prep);}
+
+  table.steps{width:100%; border-collapse:collapse;}
+  .steps tr.active td{background:#e3f2fd;}
+  .steps tr.active td:first-child{box-shadow:inset 4px 0 0 var(--accent);}
+  .steps tr.next td{background:#fffdf0;}
+  .steps tr.next td:first-child{box-shadow:inset 4px 0 0 var(--amber);}
+  .steps tr.childrow td{background:#fafbfd; border-bottom:1px dashed #e6ebf2;}
+  .steps tr.childrow .step-name{padding-left:36px; font-weight:500; font-size:13px; color:#42506a;}
+  .steps tr.childrow .tbtn{padding:6px 10px; font-size:12px;}
+  .marker{font-size:11px; font-weight:800; margin-right:5px;}
+  .marker.active{color:var(--accent); display:inline-block; animation:pulse 1.4s ease-in-out infinite;}
+  .marker.next{color:var(--amber);}
+  .steps td{padding:7px 10px; border-bottom:1px solid #eef1f6; vertical-align:middle;}
+  .steps tr:last-child td{border-bottom:none;}
+  .steps tr.skipped td{opacity:.38;}
+  .step-name{font-weight:600; font-size:14px; width:32%;}
+  .step-name .lap{font-weight:400; font-size:11px; color:var(--sub); margin-left:6px;}
+  td.acts{white-space:nowrap; width:130px;}
+  .tbtn{border:none; border-radius:8px; padding:10px 0; width:112px; text-align:center;
+    font-size:13px; font-weight:700; color:#fff; background:var(--accent);}
+  .tbtn.prep{background:var(--amber);}
+  .donemark{color:var(--green); font-weight:800; font-size:15px; display:inline-block; width:112px; text-align:center;}
+  input.tm{font-family:inherit; font-size:13px; border:1px solid var(--line); border-radius:8px; padding:5px 6px; width:118px; background:#fbfcfe;}
+  .tm-label{display:inline-block; width:28px;}
+  input.tm.score{width:112px; height:38px; font-size:16px; font-weight:700; text-align:center;}
+  input.tm.memo{width:100%; max-width:280px; text-align:left; font-size:13px;}
+  .tm-label{font-size:11px; color:var(--sub); margin-right:2px;}
+  .skipbtn{border:none; background:transparent; color:var(--sub); font-size:12px; text-decoration:underline;}
+  /* マイクロアニメーション */
+  .tbtn, .prep-chip, .btn{transition:transform .09s ease;}
+  .tbtn:active, .prep-chip:active, .btn:active{transform:scale(.88);}
+  @keyframes rowflash{0%{background:#fff59d;}100%{background:transparent;}}
+  tr.justdone td{animation:rowflash 1.2s ease-out;}
+  @keyframes popin{0%{transform:scale(0) rotate(-14deg);}60%{transform:scale(1.28) rotate(7deg);}100%{transform:scale(1) rotate(0);}}
+  tr.justdone .donemark{display:inline-block; animation:popin .4s cubic-bezier(.34,1.56,.64,1);}
+  .prep-chip.pop{animation:popin .45s cubic-bezier(.34,1.56,.64,1);}
+  label.radio{font-size:14px; font-weight:700; margin-right:12px; white-space:nowrap; cursor:pointer;}
+  label.radio input{accent-color:var(--accent); width:17px; height:17px; vertical-align:-3px; cursor:pointer;}
+  .case-foot{display:flex; gap:8px; padding:10px 14px; border-top:1px solid var(--line); justify-content:flex-end;}
+  .danger{color:var(--red);}
+
+  /* 準備OK全画面アラート（確認するまで点滅し続ける） */
+  .alert-bg{position:fixed; inset:0; z-index:2000; display:flex; align-items:center; justify-content:center;
+    animation:alertflash .7s step-end infinite;}
+  @keyframes alertflash{0%,49%{background:rgba(0,137,123,.5);}50%,100%{background:rgba(255,235,59,.45);}}
+  .alert-card{background:#fff; border-radius:20px; padding:28px 36px; text-align:center;
+    box-shadow:0 24px 70px rgba(0,0,0,.4); max-width:90vw;
+    animation:alertcard .7s step-end infinite;}
+  @keyframes alertcard{0%,49%{outline:6px solid var(--prep);}50%,100%{outline:6px solid #fbc02d;}}
+  .alert-title{font-size:24px; font-weight:900; color:var(--prep); margin-bottom:10px;}
+  .alert-card ul{list-style:none; padding:0; margin:0 0 18px; font-size:20px; font-weight:800; color:var(--ink); text-align:left;}
+  .alert-card li{padding:6px 0;}
+  .alert-chip{display:inline-block; color:#fff; font-size:14px; font-weight:800; border-radius:14px;
+    padding:4px 12px; margin-right:10px; vertical-align:2px;}
+  .alert-ok{font-size:17px; padding:12px 40px;}
+
+  /* お知らせトースト（すりガラス） */
+  .banner{position:fixed; top:72px; left:50%; z-index:1000; transform:translateX(-50%);
+    display:flex; align-items:center; gap:14px; text-align:left;
+    width:max-content; max-width:min(92vw, 540px); padding:14px 24px 14px 14px; border-radius:18px;
+    background:rgba(255,255,255,.9); backdrop-filter:blur(16px) saturate(1.4);
+    -webkit-backdrop-filter:blur(16px) saturate(1.4);
+    border:1px solid rgba(255,255,255,.7);
+    box-shadow:0 18px 50px rgba(20,30,50,.16), 0 2px 8px rgba(20,30,50,.08);
+    color:var(--ink); pointer-events:none; opacity:0; overflow:hidden;}
+  .banner .bemoji{flex:0 0 auto; width:84px; height:84px;
+    display:flex; align-items:center; justify-content:center; font-size:28px;
+    animation:emojipop .7s cubic-bezier(.34,1.56,.64,1);}
+  .banner .bemoji svg{width:100%; height:100%; overflow:visible;}
+  /* マスコットの動き */
+  .m-bob{transform-origin:60px 70px; animation:mbob 1.5s ease-in-out infinite;}
+  @keyframes mbob{0%,100%{transform:translateY(0) rotate(0);}50%{transform:translateY(-4px) rotate(-2deg);}}
+  .m-armR{transform-origin:86px 76px; animation:mwave .9s ease-in-out infinite;}
+  @keyframes mwave{0%,100%{transform:rotate(0);}50%{transform:rotate(-30deg);}}
+  .m-cheerL{transform-origin:34px 60px; animation:mcheerL .55s ease-in-out infinite;}
+  .m-cheerR{transform-origin:86px 60px; animation:mcheerR .55s ease-in-out infinite .1s;}
+  @keyframes mcheerL{0%,100%{transform:translateY(0) rotate(0);}50%{transform:translateY(-13px) rotate(-18deg);}}
+  @keyframes mcheerR{0%,100%{transform:translateY(0) rotate(0);}50%{transform:translateY(-13px) rotate(18deg);}}
+  .m-spark{animation:pulse 1s ease-in-out infinite;}
+  .m-lines{animation:mdash .5s ease-in-out infinite;}
+  @keyframes mdash{0%,100%{transform:translateX(0); opacity:.9;}50%{transform:translateX(-6px); opacity:.4;}}
+  .banner b{display:block; font-size:16px; font-weight:800; letter-spacing:.2px; color:var(--ink);}
+  .banner small{display:block; font-size:13px; font-weight:600; color:var(--sub); margin-top:2px;}
+  .banner.goal::after{content:""; position:absolute; top:0; left:-60%; width:45%; height:100%;
+    background:linear-gradient(105deg, transparent, rgba(255,255,255,.95), transparent);
+    animation:shine 1.4s ease .4s 2;}
+  @keyframes shine{to{left:135%;}}
+  @keyframes emojipop{0%{transform:scale(0) rotate(-20deg);}70%{transform:scale(1.15) rotate(5deg);}100%{transform:scale(1) rotate(0);}}
+  @keyframes bannerpop{
+    0%{opacity:0; transform:translateX(-50%) translateY(-22px) scale(.94);}
+    60%{opacity:1; transform:translateX(-50%) translateY(4px) scale(1.015);}
+    100%{opacity:1; transform:translateX(-50%) translateY(0) scale(1);}}
+  @keyframes bannerout{to{opacity:0; transform:translateX(-50%) translateY(-16px) scale(.96);}}
+
+  /* ===== スマホ縦（iPhone等）向け ===== */
+  @media (max-width: 640px){
+    header{padding:8px 10px; gap:6px;}
+    header h1{font-size:15px; flex-basis:100%; min-width:0;}
+    .btn{padding:8px 10px; font-size:13px;}
+    main{padding:8px;}
+    .case{border-radius:12px; margin-bottom:12px;}
+    .case-head{flex-direction:column; align-items:stretch; gap:6px; padding:10px 12px;}
+    .case-label{width:100%; font-size:24px;}
+    .proto-badge{align-self:flex-start;}
+    .now-status{min-width:0;}
+    .clock{display:block; width:100%; font-size:46px; padding:8px 0;}
+    .clock.wait{width:100%; padding:14px 0;}
+    .flow{padding:8px 10px;}
+    .flow.preps{padding:10px; gap:8px;}
+    .prep-chip{font-size:14px; padding:10px 14px;}
+    /* 工程表：1行を縦積みカードに */
+    table.steps, table.steps tbody, table.steps tr, table.steps td{display:block; width:100%;}
+    table.steps tr{position:relative; padding:9px 12px; border-bottom:1px solid #e6ebf2;}
+    table.steps td{padding:3px 0; border-bottom:none;}
+    table.steps td:empty{display:none;}
+    .step-name{width:auto; font-size:15px; padding-right:64px;}
+    td.acts{width:auto;}
+    td.skipcell{position:absolute; top:9px; right:12px; width:auto; padding:0;}
+    .steps tr.active{background:#e3f2fd; box-shadow:inset 4px 0 0 var(--accent);}
+    .steps tr.next{background:#fffdf0; box-shadow:inset 4px 0 0 var(--amber);}
+    .steps tr.active td, .steps tr.next td{background:transparent;}
+    .steps tr.active td:first-child, .steps tr.next td:first-child{box-shadow:none;}
+    .steps tr.childrow{background:#fafbfd;}
+    .steps tr.childrow .step-name{padding-left:16px;}
+    .donemark{width:auto; text-align:left;}
+    input.tm.memo{max-width:100%;}
+    .case-foot{padding:8px 12px;}
+    /* 設定モーダル */
+    .modal-bg.show{padding:8px 4px;}
+    .modal{padding:14px; border-radius:12px;}
+    .frow label{min-width:100%;}
+    .frow input[type=text], .frow select{flex:1; min-width:0;}
+    .steps-editor .frow.childedit{margin-left:14px;}
+    .addchild{margin-left:14px;}
+  }
+
+  /* modal */
+  .modal-bg{display:none; position:fixed; inset:0; background:rgba(20,30,50,.45); z-index:50;}
+  .modal-bg.show{display:flex; align-items:flex-start; justify-content:center; overflow:auto; padding:24px 10px;}
+  .modal{background:var(--card); border-radius:14px; max-width:680px; width:100%; padding:20px;}
+  .modal h2{margin:0 0 14px; font-size:17px;}
+  .modal h3{font-size:14px; margin:20px 0 8px; color:var(--accent);}
+  .frow{display:flex; align-items:center; gap:10px; margin-bottom:10px; flex-wrap:wrap;}
+  .frow label{font-size:13px; min-width:140px; color:var(--sub);}
+  .frow input[type=number], .frow input[type=text], .frow select{
+    font-family:inherit; font-size:14px; border:1px solid var(--line); border-radius:8px; padding:8px;}
+  textarea{width:100%; font-family:ui-monospace,Menlo,monospace; font-size:12px; border:1px solid var(--line);
+    border-radius:8px; padding:8px; min-height:110px;}
+  .steps-editor .frow input[type=text]{flex:1;}
+  .steps-editor .frow.childedit{margin-left:34px; background:#fafbfd; border-left:3px solid var(--line); padding:4px 6px; border-radius:6px;}
+  .hint{font-size:12px; color:var(--sub); line-height:1.6;}
+  .stabs{display:flex; gap:4px; border-bottom:2px solid var(--line); margin-bottom:16px;}
+  .stab{border:none; background:transparent; padding:10px 18px; font-size:14px; font-weight:700;
+    color:var(--sub); border-bottom:3px solid transparent; margin-bottom:-2px;}
+  .stab.on{color:var(--accent); border-bottom-color:var(--accent);}
+  .modal-foot{display:flex; justify-content:flex-end; gap:8px; margin-top:18px;}
+  .addchild{border:none; background:transparent; color:var(--accent); font-size:12px; text-decoration:underline; margin:0 0 10px 34px; display:block;}
+  .proto-choice{display:block; width:100%; text-align:left; font-size:16px; font-weight:700; padding:14px 16px;
+    margin-bottom:10px; border:1.5px solid var(--line); border-radius:10px; background:#fbfcfe;}
+  .proto-choice small{display:block; font-weight:400; font-size:12px; color:var(--sub); margin-top:3px;}
+</style>
+</head>
+<body>
+<header>
+  <h1 id="appTitle">⏱ 医療タイムトラッカー</h1>
+  <span id="connBadge" class="badge local">ローカルモード</span>
+  <button class="btn primary" onclick="addCase()">＋ 新規症例</button>
+  <button class="btn" id="archiveBtn" onclick="openArchive()">📁 終了症例</button>
+  <button class="btn" id="muteBtn" onclick="toggleMute()" title="この端末への症例アラートを止める">🔔</button>
+  <button class="btn" onclick="openSettings()">⚙ 設定</button>
+</header>
+<main id="casesWrap"></main>
+
+<!-- 終了症例（アーカイブ） -->
+<div class="modal-bg" id="archiveModal">
+  <div class="modal" style="max-width:760px">
+    <h2>終了した症例</h2>
+    <p class="hint">終了した症例の記録一覧です。CSVに書き出せます。</p>
+    <div id="archiveList"></div>
+    <div class="modal-foot">
+      <button class="btn primary" onclick="exportCsv()">⬇ CSVエクスポート</button>
+      <button class="btn" onclick="closeArchive()">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- プロトコル選択 -->
+<div class="modal-bg" id="protoModal">
+  <div class="modal">
+    <h2>プロトコルを選択</h2>
+    <div id="protoChoices"></div>
+    <div class="modal-foot"><button class="btn" onclick="closeProtoModal()">キャンセル</button></div>
+  </div>
+</div>
+
+<!-- 設定 -->
+<div class="modal-bg" id="settingsModal">
+  <div class="modal">
+    <h2>設定</h2>
+
+    <div class="stabs">
+      <button class="stab on" id="stabMain" onclick="showSettingsTab('main')">全般</button>
+      <button class="stab" id="stabBoard" onclick="showSettingsTab('board')">ステータスボード</button>
+    </div>
+
+    <div id="tabMain">
+    <div class="frow"><label>アプリ名（ヘッダー表示）</label><input type="text" id="setAppName" style="flex:1" placeholder="医療タイムトラッカー"></div>
+
+    <h3>プロトコル</h3>
+    <div class="frow">
+      <label>編集するプロトコル</label>
+      <select id="setProtoSel" onchange="editorSwitchProto(this.value)"></select>
+      <button class="btn small" onclick="toggleProtoOrder()">⇅ 並び替え</button>
+      <button class="btn small" onclick="editorNewProto()">＋新規</button>
+      <button class="btn small" onclick="editorCopyProto()">複製</button>
+      <button class="btn small danger" onclick="editorDelProto()">削除</button>
+    </div>
+    <div id="protoOrderView" style="display:none; margin:4px 0 12px 150px;"></div>
+    <div class="frow"><label>プロトコル名</label><input type="text" id="setProtoName" style="flex:1"><input type="color" id="setProtoColor" title="識別色" style="width:44px; height:38px; border:1px solid var(--line); border-radius:8px; padding:2px; cursor:pointer;"></div>
+    <div class="frow"><label>起点の工程</label><select id="setStart"></select></div>
+    <div class="frow"><label>目標の工程</label><select id="setGoal"></select></div>
+    <div class="frow"><label>目標時間（分）</label><input type="number" id="setTarget" min="1" style="width:90px"></div>
+    <div class="frow"><label>注意表示を開始（分）</label><input type="number" id="setWarn" min="1" style="width:90px"></div>
+
+    <h3>工程リスト</h3>
+    <p class="hint">種別 —「開始/終了」「時刻のみ」「準備フラグ」（順不同の帯に表示）「点数入力」「テキスト」「選択肢」。「＋中項目」で工程の下に細目を追加できます。<br>
+    通知 — 各工程を他端末にどう知らせるか：🔕なし／💬トースト（数秒で消える）／🚨全画面点滅（確認するまで消えない）。文言を空欄にすると「◯◯を記録（症例1）10:23」の形式で自動生成されます。</p>
+    <div id="stepsEditor" class="steps-editor"></div>
+    <button class="btn small" onclick="editorAddStep()">＋ 工程を追加</button>
+
+    <h3>通知（Slack / Webhook）</h3>
+    <p class="hint">Slackの Incoming Webhook URL を貼ると、起点の記録時・目標到達時に自動投稿します（記録した端末から送信）。</p>
+    <div class="frow"><label>Webhook URL</label><input type="text" id="setHookUrl" placeholder="https://hooks.slack.com/services/..." style="flex:1"></div>
+    <div class="frow">
+      <label>送信タイミング</label>
+      <label style="min-width:0"><input type="checkbox" id="setNotifyStart" checked> 起点の記録時</label>
+      <label style="min-width:0"><input type="checkbox" id="setNotifyGoal" checked> 目標到達時</label>
+    </div>
+
+    <h3>他拠点との同期（Firebase）</h3>
+    <p class="hint">Firebaseコンソールで取得した firebaseConfig を貼り付けてください（付属のREADME参照）。空欄の場合はこの端末だけのローカルモードで動作します。</p>
+    <textarea id="setFbConfig" placeholder='{ "apiKey": "...", "databaseURL": "https://xxx.firebasedatabase.app", ... }'></textarea>
+    <div class="frow" style="margin-top:8px"><label>ルーム表示名（画面に出る名前）</label><input type="text" id="setRoom" placeholder="救急チーム" style="flex:1"></div>
+    <div class="frow"><label>この端末の名前（任意）</label><input type="text" id="setDevName" placeholder="例: CT室・救外1・アンギオ室" style="flex:1"></div>
+    <div class="frow"><label>接続キー（全拠点で同じものを）</label><input type="text" id="setRoomKey" placeholder="推測されにくい文字列" style="flex:1"><button class="btn small" onclick="genRoomKey()">🎲 生成</button></div>
+    <p class="hint">端末名を付けると、他端末へのアラートや部署ステータスの更新表示に「どの端末が操作したか」が表示されます。端末ごとの設定で同期されません。</p>
+    <p class="hint">接続キーが実際のデータの置き場所になります。「🎲 生成」で推測不能な文字列を作り、他拠点には表示名とキーの両方を伝えてください。キーを変えると別ルーム扱いになります。</p>
+    </div>
+
+    <div id="tabBoard" style="display:none">
+      <p class="hint">メイン画面の上部に表示される部署の状態表示です。部署名・ステータスの文言・色・点滅を自由に設定できます（変更は全拠点に同期）。</p>
+      <div id="deptsEditor"></div>
+      <button class="btn small" onclick="editorAddDept()">＋ 部署を追加</button>
+    </div>
+
+    <div class="modal-foot">
+      <button class="btn" onclick="closeSettings()">キャンセル</button>
+      <button class="btn primary" onclick="saveSettings()">保存して適用</button>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ================= プリセット ================= */
+function PRESETS(){
+  return {
+    stroke: {id:"stroke", name:"脳卒中", color:"#1565c0", order:0, targetMin:60, warnMin:45, startStepId:"arrival", goalStepId:"puncture",
+      steps:[
+        {id:"arrival",  name:"到着",             type:"single", children:[]},
+        {id:"nihss",    name:"NIHSS",            type:"score",  children:[]},
+        {id:"lvo",      name:"LVO確認",          type:"choice", options:["陰性","陽性"], children:[]},
+        {id:"nsconsult",name:"脳神経外科連絡",   type:"single", children:[]},
+        {id:"ctprep",   name:"CT準備OK",         type:"prep",   children:[]},
+        {id:"ct",       name:"CT撮影",           type:"range",  children:[]},
+        {id:"mriprep",  name:"MRI準備",          type:"prep",   children:[]},
+        {id:"mri",      name:"MRI撮影",          type:"range",  children:[]},
+        {id:"angioprep",name:"血管撮影室準備OK", type:"prep",   children:[]},
+        {id:"puncture", name:"血栓回収開始",     type:"single", children:[]}
+      ]},
+    stemi: {id:"stemi", name:"心筋梗塞（STEMI）", color:"#c62828", order:1, targetMin:90, warnMin:70, startStepId:"st_arrival", goalStepId:"st_balloon",
+      steps:[
+        {id:"st_arrival", name:"到着",           type:"single", children:[]},
+        {id:"st_ecg",     name:"12誘導心電図",   type:"single", children:[]},
+        {id:"st_dx",      name:"STEMI判定",      type:"single", children:[]},
+        {id:"st_call",    name:"循環器コール",   type:"single", children:[]},
+        {id:"st_lab",     name:"採血・ルート確保", type:"range", children:[]},
+        {id:"st_cathprep",name:"カテ室準備OK",   type:"prep",   children:[]},
+        {id:"st_cathin",  name:"カテ室入室",     type:"single", children:[]},
+        {id:"st_balloon", name:"バルーン拡張",   type:"single", children:[]}
+      ]},
+    sepsis: {id:"sepsis", name:"敗血症（1時間バンドル）", color:"#6a1b9a", order:2, targetMin:60, warnMin:45, startStepId:"sp_recog", goalStepId:"sp_abx",
+      steps:[
+        {id:"sp_recog",  name:"敗血症認知",   type:"single", children:[]},
+        {id:"sp_lactate",name:"乳酸値",       type:"score",  children:[]},
+        {id:"sp_culture",name:"血液培養採取", type:"single", children:[]},
+        {id:"sp_abx",    name:"抗菌薬投与",   type:"single", children:[]},
+        {id:"sp_fluid",  name:"輸液開始",     type:"single", children:[]},
+        {id:"sp_pressor",name:"昇圧薬開始",   type:"single", children:[]}
+      ]}
+  };
+}
+
+/* 部署ステータスの初期値 */
+function DEFAULT_DEPTS(){
+  return [
+    { id:"er", name:"救急部", current:0, statuses:[
+      { label:"受け入れ可",   color:"#2e7d32" },
+      { label:"要相談",       color:"#f9a825" },
+      { label:"受け入れ不可", color:"#c62828", blink:true } ]},
+    { id:"angio", name:"アンギオ室", current:1, statuses:[
+      { label:"使用中", color:"#c62828", blink:true },
+      { label:"未使用", color:"#2e7d32" } ]}
+  ];
+}
+
+/* ================= 状態 ================= */
+let state = { v:3, protocols: PRESETS(), cases: {}, depts: DEFAULT_DEPTS() };
+let fb = null;
+let fbReady = false;
+const LS_KEY = "strokeTracker.v1.state";
+const LS_CONN = "strokeTracker.v1.conn";
+/* この端末を識別するID（準備OKアラートを「他端末のみ」に出すため） */
+const CLIENT_ID = (function(){
+  try{
+    let v = localStorage.getItem("strokeTracker.clientId");
+    if(!v){ v = Date.now().toString(36) + Math.random().toString(36).slice(2,8); localStorage.setItem("strokeTracker.clientId", v); }
+    return v;
+  }catch(e){ return "c" + Math.random().toString(36).slice(2,10); }
+})();
+
+/* ================= ユーティリティ ================= */
+const $ = s => document.querySelector(s);
+const nowIso = () => new Date().toISOString();
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+function fmtHMS(iso){
+  if(!iso) return "";
+  return new Date(iso).toTimeString().slice(0,8);
+}
+function fmtElapsed(ms){
+  if(ms < 0) ms = 0;
+  const m = Math.floor(ms/60000), s = Math.floor(ms/1000)%60;
+  return String(m).padStart(2,"0") + ":" + String(s).padStart(2,"0");
+}
+function minutesFrom(fromIso, toIso){
+  return Math.round((new Date(toIso) - new Date(fromIso))/60000);
+}
+function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+function deepCopy(o){ return JSON.parse(JSON.stringify(o)); }
+
+function getProto(c){
+  return state.protocols[c.protoId] || Object.values(state.protocols)[0];
+}
+function flatSteps(proto){
+  const out = [];
+  for(const st of proto.steps){ out.push(st); for(const ch of (st.children||[])) out.push(ch); }
+  return out;
+}
+function stepName(proto, id){
+  const st = flatSteps(proto).find(s => s.id === id);
+  return st ? st.name : id;
+}
+
+/* ================= 旧データ移行 ================= */
+function migrate(s){
+  if(!s || typeof s !== "object") return null;
+  if(!s.protocols){
+    if(!s.settings) return null;
+    const set = s.settings;
+    if(!set.v){
+      const nih = (set.steps||[]).find(x => x.id === "nihss");
+      if(nih) nih.type = "score";
+    }
+    const p = PRESETS();
+    p.stroke.targetMin = set.targetMin || 60;
+    p.stroke.warnMin = set.warnMin || 45;
+    p.stroke.startStepId = set.startStepId || "arrival";
+    p.stroke.goalStepId = set.goalStepId || "puncture";
+    if(set.steps && set.steps.length) p.stroke.steps = set.steps;
+    s = { v:3, protocols: p, cases: s.cases || {} };
+  }
+  if(!s.cases) s.cases = {};
+  const firstId = Object.keys(s.protocols)[0];
+  for(const proto of Object.values(s.protocols)){
+    if(!proto.steps) proto.steps = [];
+    for(const st of proto.steps){ if(!st.children) st.children = []; }
+  }
+  for(const c of Object.values(s.cases)){ if(!c.protoId || !s.protocols[c.protoId]) c.protoId = firstId; }
+  if(!s.notify) s.notify = { url:"", onStart:true, onGoal:true };
+  if(!s.appName) s.appName = "医療タイムトラッカー";
+  if(!s.depts) s.depts = DEFAULT_DEPTS();
+  if(!s.v4){
+    const p = s.protocols.stroke;
+    if(p){
+      const st = p.steps.find(x => x.id === "lvo");
+      if(st && st.type === "range"){ st.type = "choice"; st.options = ["陰性","陽性"]; }
+    }
+    s.v4 = true;
+  }
+  if(!s.v5){
+    /* 工程ごとの通知設定を導入（準備フラグは従来どおり全画面が既定） */
+    for(const p of Object.values(s.protocols)){
+      for(const st of p.steps){
+        if(!st.alert) st.alert = st.type === "prep" ? "flash" : "none";
+        for(const ch of (st.children||[])) if(!ch.alert) ch.alert = ch.type === "prep" ? "flash" : "none";
+      }
+    }
+    s.v5 = true;
+  }
+  /* プロトコルの識別色（未設定ならパレットから自動割当） */
+  const PALETTE = ["#1565c0","#c62828","#6a1b9a","#00897b","#ef6c00","#283593","#00838f","#5d4037"];
+  let ci = 0;
+  for(const p of Object.values(s.protocols)){
+    if(!p.color) p.color = PALETTE[ci % PALETTE.length];
+    ci++;
+  }
+  /* 並び順（Firebaseはオブジェクトのキー順を保持しないため明示的に持つ） */
+  const KNOWN_ORDER = { stroke:0, stemi:1, sepsis:2 };
+  let nextOrder = 100;
+  for(const [pid, p] of Object.entries(s.protocols)){
+    if(typeof p.order !== "number") p.order = KNOWN_ORDER[pid] !== undefined ? KNOWN_ORDER[pid] : nextOrder++;
+  }
+  return s;
+}
+function protoColor(proto){ return (proto && proto.color) || "#1565c0"; }
+function protoList(src){
+  return Object.values(src || state.protocols).sort((a,b) => (a.order||0) - (b.order||0));
+}
+function applyAppName(){
+  const name = state.appName || "医療タイムトラッカー";
+  $("#appTitle").textContent = "⏱ " + name;
+  document.title = name;
+}
+
+/* ================= 永続化・同期 ================= */
+function persist(){
+  if(fbReady){
+    fb.set(state).catch(e => setBadge("err","同期エラー"));
+  } else {
+    localStorage.setItem(LS_KEY, JSON.stringify(state));
+  }
+}
+function setBadge(cls, text){
+  const b = $("#connBadge");
+  b.className = "badge " + cls;
+  b.textContent = text;
+}
+function loadLocal(){
+  try{
+    const raw = localStorage.getItem(LS_KEY);
+    if(raw){
+      const m = migrate(JSON.parse(raw));
+      if(m) state = m;
+    }
+  }catch(e){}
+}
+function connectFirebase(conf, key, label){
+  return new Promise((resolve, reject) => {
+    const load = (src) => new Promise((ok, ng) => {
+      const sc = document.createElement("script");
+      sc.src = src; sc.onload = ok; sc.onerror = ng;
+      document.head.appendChild(sc);
+    });
+    const base = "https://www.gstatic.com/firebasejs/10.12.5/";
+    (window.firebase ? Promise.resolve()
+      : load(base+"firebase-app-compat.js").then(()=>load(base+"firebase-database-compat.js"))
+    ).then(() => {
+      try{
+        if(!firebase.apps.length) firebase.initializeApp(conf);
+        const roomKey = String(key||"er").replace(/[.#$\[\]\/\s]/g,"-");
+        const disp = (label && label.trim()) || roomKey;
+        fb = firebase.database().ref("rooms/" + roomKey);
+        let firstLoad = true;
+        fb.on("value", snap => {
+          const v = migrate(snap.val());
+          if(v){
+            const prev = state;
+            state = v;
+            if(!firstLoad) checkRemoteAlerts(prev, state);
+          } else {
+            fb.set(state); // 初回：ローカルの内容をルームへ
+          }
+          firstLoad = false;
+          fbReady = true;
+          setBadge("online","同期中: " + disp);
+          render();
+        }, err => { setBadge("err","接続エラー"); reject(err); });
+        firebase.database().ref(".info/connected").on("value", s => {
+          if(fbReady) setBadge(s.val() ? "online" : "err", s.val() ? "同期中: "+disp : "再接続中…");
+        });
+        resolve();
+      }catch(e){ reject(e); }
+    }).catch(reject);
+  });
+}
+function genRoomKey(){
+  const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789";
+  let k = "";
+  for(let i=0; i<20; i++) k += chars[Math.floor(Math.random()*chars.length)];
+  $("#setRoomKey").value = k;
+}
+function tryAutoConnect(){
+  try{
+    const c = JSON.parse(localStorage.getItem(LS_CONN) || "null");
+    if(c && c.conf && c.conf.databaseURL){
+      setBadge("local","接続中…");
+      connectFirebase(c.conf, c.key || c.room, c.room).catch(()=> setBadge("err","接続失敗（ローカル動作）"));
+    }
+  }catch(e){}
+}
+
+/* ================= 症例操作 ================= */
+function addCase(){
+  const list = protoList();
+  if(list.length === 1){ createCase(list[0].id); return; }
+  $("#protoChoices").innerHTML = list.map(p => {
+    const pid = p.id;
+    return '<button class="proto-choice" style="border-left:7px solid '+protoColor(p)+'" onclick="createCase(\''+pid+'\')">'+
+      '<span style="display:inline-block;width:13px;height:13px;border-radius:7px;background:'+protoColor(p)+';margin-right:9px"></span>'+esc(p.name)+
+      '<small>目標 '+p.targetMin+'分（'+esc(stepName(p,p.startStepId))+'→'+esc(stepName(p,p.goalStepId))+'）</small></button>';
+  }).join("");
+  $("#protoModal").classList.add("show");
+}
+function closeProtoModal(){ $("#protoModal").classList.remove("show"); }
+function createCase(protoId){
+  closeProtoModal();
+  const n = Object.keys(state.cases).length + 1;
+  const d = new Date();
+  const label = "症例" + n + "（" + (d.getMonth()+1) + "/" + d.getDate() + "）";
+  const id = uid();
+  state.cases[id] = { id, label, protoId, createdAt: nowIso(), times: {}, closed: false };
+  persist(); render();
+}
+function getCaseTime(c, stepId, key){
+  return (c.times && c.times[stepId] && c.times[stepId][key]) || null;
+}
+function setCaseTime(id, stepId, key, val, by){
+  const c = state.cases[id]; if(!c) return;
+  if(!c.times) c.times = {};
+  if(!c.times[stepId]) c.times[stepId] = {};
+  c.times[stepId][key] = val;
+  if(by){
+    c.times[stepId].by = by;
+    const dn = devName();
+    if(dn) c.times[stepId].byName = dn;
+  }
+  persist(); render();
+}
+let lastStamp = null;   // 直近に記録した工程（演出用）
+function stamp(id, stepId, key){
+  lastStamp = { cid: id, sid: stepId, t: Date.now() };
+  setCaseTime(id, stepId, key, nowIso(), CLIENT_ID);
+  notifyIfNeeded(id, stepId, key);
+  // 起点・目標の記録時にバナー演出（目標時間内なら紙吹雪も）
+  const c = state.cases[id];
+  if(c && key === "start"){
+    const proto = getProto(c);
+    if(stepId === proto.startStepId){
+      showBanner("🚑", "タイムトラッキング開始！",
+        "速やかに各工程を進めてください。目標は " + proto.targetMin + " 分です。", "start");
+    } else if(stepId === proto.goalStepId){
+      const s = getCaseTime(c, proto.startStepId, "start");
+      const mins = s ? minutesFrom(s, nowIso()) : null;
+      if(s && mins <= proto.targetMin){
+        popConfetti();
+        showBanner("🎉", "目標達成！ありがとうございます！",
+          esc(stepName(proto, proto.startStepId)) + "→" + esc(stepName(proto, proto.goalStepId)) +
+          " " + mins + "分（目標 " + proto.targetMin + "分）", "goal", 5600);
+      } else {
+        showBanner("📝", esc(stepName(proto, proto.goalStepId)) + " を記録しました",
+          s ? "所要 " + mins + "分（目標 " + proto.targetMin + "分）" : "", "plain");
+      }
+    }
+  }
+}
+
+/* オリジナルのゆるキャラ（ぷにっとした青いマスコット）SVG */
+function mascotSVG(kind){
+  const OL = '#33386b', BODY = '#7c8ff9', LIMB = '#6f83f7';
+  const limb = (cx,cy,cls) =>
+    (cls?'<g class="'+cls+'">':'') +
+    '<ellipse cx="'+cx+'" cy="'+cy+'" rx="9" ry="8" fill="'+LIMB+'" stroke="'+OL+'" stroke-width="3"/>' +
+    (cls?'</g>':'');
+  /* 白のメディカルキャップ（赤十字・大きめ）と聴診器は全ポーズ共通 */
+  const cap = '<path d="M18 58 a42 38 0 0 1 84 0 l-5 3 h-74 z" fill="#ffffff" stroke="'+OL+'" stroke-width="3.5" stroke-linejoin="round"/>' +
+    '<rect x="55" y="26" width="10" height="24" rx="2.5" fill="#e53950"/>' +
+    '<rect x="48" y="33" width="24" height="10" rx="2.5" fill="#e53950"/>';
+  const stetho = '<path d="M44 88 q16 17 32 0" fill="none" stroke="#e2517a" stroke-width="3.5" stroke-linecap="round"/>' +
+    '<circle cx="60" cy="98" r="4.5" fill="#ffd54f" stroke="'+OL+'" stroke-width="2.5"/>';
+  const smile = '<path d="M52 78 q8 8 16 0" stroke="#2c3050" stroke-width="3.6" fill="none" stroke-linecap="round"/>';
+  let hat = cap, extras = "", eyes, arms, mouth = smile;
+  if(kind === "goal"){
+    /* 満面の笑み＋大きく開いた口＋高々と万歳 */
+    eyes = '<path d="M43 62 q7 -9 14 0" stroke="#2c3050" stroke-width="3.8" fill="none" stroke-linecap="round"/>' +
+           '<path d="M63 62 q7 -9 14 0" stroke="#2c3050" stroke-width="3.8" fill="none" stroke-linecap="round"/>';
+    mouth = '<path d="M48 73 q12 17 24 0 z" fill="#8a4058" stroke="#2c3050" stroke-width="3" stroke-linejoin="round"/>' +
+            '<path d="M54 82 q6 4 12 0" fill="#ff8fae"/>';
+    arms = limb(22,42,"m-cheerL") + limb(98,42,"m-cheerR");
+    extras = '<g class="m-spark">' +
+      '<path d="M12 24 l3.5 8 8 3.5 -8 3.5 -3.5 8 -3.5 -8 -8 -3.5 8 -3.5 z" fill="#ffd54f"/>' +
+      '<path d="M106 16 l2.6 6 6 2.6 -6 2.6 -2.6 6 -2.6 -6 -6 -2.6 6 -2.6 z" fill="#ffd54f"/>' +
+      '<circle cx="22" cy="60" r="3" fill="#ff8fae"/><circle cx="100" cy="52" r="3" fill="#7ce0a8"/>' +
+      '<circle cx="14" cy="46" r="2.5" fill="#8b94ff"/><circle cx="108" cy="38" r="2.5" fill="#ffb300"/></g>';
+  } else if(kind === "start"){
+    /* キリッとした眉＋「お口おー」で急行中 */
+    eyes = '<circle cx="50" cy="65" r="3.8" fill="#2c3050"/><circle cx="70" cy="65" r="3.8" fill="#2c3050"/>' +
+           '<path d="M43 56 l13 3.5 M77 56 l-13 3.5" stroke="#2c3050" stroke-width="3.2" stroke-linecap="round"/>';
+    mouth = '<ellipse cx="60" cy="79" rx="4.5" ry="5.5" fill="#8a4058" stroke="#2c3050" stroke-width="2.5"/>';
+    arms = limb(27,78) + limb(93,78,"m-armR");
+    extras = '<g class="m-lines"><path d="M4 56 h15 M0 72 h15 M6 88 h13" stroke="#9aa7ff" stroke-width="5" stroke-linecap="round"/></g>' +
+      '<path d="M96 30 q3 -6 8 -4 M100 40 q4 -4 8 -2" stroke="#ffd54f" stroke-width="3" fill="none" stroke-linecap="round"/>';
+  } else if(kind === "plain"){
+    eyes = '<circle cx="50" cy="63" r="3.8" fill="#2c3050"/><circle cx="70" cy="63" r="3.8" fill="#2c3050"/>';
+    arms = limb(27,78) + limb(93,78,"m-armR");
+  } else {
+    return "";
+  }
+  return '<svg viewBox="0 0 120 116" xmlns="http://www.w3.org/2000/svg">' +
+    '<g class="m-bob">' +
+      '<ellipse cx="60" cy="108" rx="27" ry="5.5" fill="rgba(40,50,90,.15)"/>' +
+      '<ellipse cx="47" cy="100" rx="8.5" ry="7" fill="'+LIMB+'" stroke="'+OL+'" stroke-width="3"/>' +
+      '<ellipse cx="73" cy="100" rx="8.5" ry="7" fill="'+LIMB+'" stroke="'+OL+'" stroke-width="3"/>' +
+      arms +
+      '<circle cx="60" cy="66" r="38" fill="'+BODY+'" stroke="'+OL+'" stroke-width="3.5"/>' +
+      '<ellipse cx="60" cy="74" rx="23" ry="17" fill="#b9c4ff" opacity=".85"/>' +
+      eyes + mouth +
+      '<ellipse cx="39" cy="73" rx="5.5" ry="3.8" fill="#ffa6c1" opacity=".95"/>' +
+      '<ellipse cx="81" cy="73" rx="5.5" ry="3.8" fill="#ffa6c1" opacity=".95"/>' +
+      stetho + hat +
+    '</g>' + extras + '</svg>';
+}
+
+/* 中央上に数秒だけ表示されるバナー（マスコット付き） */
+function showBanner(emoji, title, sub, cls, dur){
+  try{
+    dur = dur || 4200;
+    const d = document.createElement("div");
+    d.className = "banner " + (cls || "");
+    d.innerHTML = '<div class="btxt"><b>' + title + "</b>" + (sub ? "<small>" + sub + "</small>" : "") + '</div>';
+    d.style.animation = "bannerpop .7s cubic-bezier(.34,1.56,.64,1) forwards, bannerout .5s ease " + ((dur-500)/1000) + "s forwards";
+    document.body.appendChild(d);
+    setTimeout(() => d.remove(), dur);
+  }catch(e){}
+}
+
+/* お祝いの紙吹雪（クラッカー3連発・約5秒・外部ライブラリなし） */
+function popConfetti(){
+  try{
+    const cv = document.createElement("canvas");
+    cv.style.cssText = "position:fixed;inset:0;pointer-events:none;z-index:999";
+    cv.width = window.innerWidth; cv.height = window.innerHeight;
+    document.body.appendChild(cv);
+    const ctx = cv.getContext("2d");
+    const colors = ["#1565c0","#2e7d32","#ef6c00","#c62828","#00897b","#f9a825","#8e24aa","#e91e63"];
+    const rnd = (a,b) => a + Math.random()*(b-a);
+    const ps = [];
+    // クラッカー1発分：位置(x,y)から角度baseAngleに向けて扇状に発射
+    function burst(x, y, baseAngle, spread, count, power, delay){
+      for(let i=0; i<count; i++){
+        const a = baseAngle + rnd(-spread, spread);
+        const v = rnd(power*.45, power);
+        ps.push({ x, y, vx:Math.cos(a)*v, vy:Math.sin(a)*v,
+          w:rnd(5,11), h:rnd(8,18), c:colors[(Math.random()*colors.length)|0],
+          r:rnd(0,Math.PI*2), vr:rnd(-.25,.25), delay, sway:rnd(0,Math.PI*2) });
+      }
+    }
+    // 左下→右下→中央の3連発（パンッ、パンッ、ポンッ）
+    burst(0,           cv.height*.95, -Math.PI/3.2,           .35, 100, 24, 0);
+    burst(cv.width,    cv.height*.95, -Math.PI + Math.PI/3.2, .35, 100, 24, 400);
+    burst(cv.width/2,  cv.height*.30,  Math.PI/2,        Math.PI,  80,  9, 800);
+    // 絵文字が上からヒラヒラ降ってくる
+    const emojis = ["🎉","✨","⭐","🎊","💫","🌟"];
+    for(let i=0; i<28; i++){
+      ps.push({ x:rnd(0,cv.width), y:-40-rnd(0,300), vx:rnd(-1,1), vy:rnd(1.5,3.5),
+        e:emojis[i % emojis.length], size:rnd(22,36),
+        r:rnd(-.4,.4), vr:rnd(-.06,.06), delay:rnd(200,1400), sway:rnd(0,6) });
+    }
+    const T = 5200, t0 = Date.now();
+    (function frame(){
+      const el = Date.now()-t0;
+      ctx.clearRect(0,0,cv.width,cv.height);
+      let alive = false;
+      const fade = Math.max(0, Math.min(1, (T-el)/900));   // 最後の0.9秒でフェードアウト
+      for(const p of ps){
+        if(el < p.delay){ alive = true; continue; }
+        p.vx *= .992;
+        p.vy = p.e ? Math.min(p.vy + .01, 3.8) : p.vy*.992 + .16;  // 絵文字はゆっくり、紙片は重力で
+        p.x += p.vx + Math.sin(el/300 + p.sway) * (p.e ? 1.4 : .7); // 左右に揺れる
+        p.y += p.vy;
+        p.r += p.vr;
+        if(p.y < cv.height + 40) alive = true;
+        ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.r);
+        ctx.globalAlpha = fade;
+        if(p.e){
+          ctx.font = p.size + "px serif";
+          ctx.textAlign = "center";
+          ctx.fillText(p.e, 0, p.size/3);
+        } else {
+          ctx.fillStyle = p.c;
+          ctx.fillRect(-p.w/2, -p.h/2, p.w, p.h);
+        }
+        ctx.restore();
+      }
+      if(el < T && alive) requestAnimationFrame(frame); else cv.remove();
+    })();
+  }catch(e){}
+}
+
+/* ================= 通知（Slack / Webhook） ================= */
+function notifyIfNeeded(id, stepId, key){
+  const N = state.notify || {};
+  if(!N.url || key !== "start") return;
+  const c = state.cases[id]; if(!c) return;
+  const proto = getProto(c);
+  const dn = devName() ? "・" + devName() : "";
+  if(stepId === proto.startStepId && N.onStart !== false){
+    sendNotify("⏱ タイムトラッカー起動: " + c.label + "／" + proto.name +
+      "（" + stepName(proto, proto.startStepId) + " " + fmtHMS(nowIso()) + "・目標 " + proto.targetMin + "分" + dn + "）");
+  } else if(stepId === proto.goalStepId && N.onGoal !== false){
+    const s = getCaseTime(c, proto.startStepId, "start");
+    const el = s ? "・経過 " + minutesFrom(s, nowIso()) + "分" : "";
+    sendNotify("🏁 目標到達: " + c.label + "／" + proto.name +
+      "（" + stepName(proto, proto.goalStepId) + " " + fmtHMS(nowIso()) + el + dn + "）");
+  }
+}
+function sendNotify(text){
+  try{
+    fetch(state.notify.url, {
+      method: "POST",
+      mode: "no-cors",                       // Slack Webhookはレスポンス不可でも送信される
+      headers: {"Content-Type": "text/plain"},
+      body: JSON.stringify({ text })
+    }).catch(()=>{});
+  }catch(e){}
+}
+function toggleSkip(id, stepId){
+  const c = state.cases[id]; if(!c) return;
+  if(!c.times) c.times = {};
+  if(!c.times[stepId]) c.times[stepId] = {};
+  c.times[stepId].skipped = !c.times[stepId].skipped;
+  persist(); render();
+}
+function editTime(id, stepId, key, hms){
+  const c = state.cases[id]; if(!c) return;
+  if(!hms){ setCaseTime(id, stepId, key, null); return; }
+  const cur = getCaseTime(c, stepId, key);
+  const base = cur ? new Date(cur) : new Date(getCaseTime(c, getProto(c).startStepId, "start") || c.createdAt);
+  const p = hms.split(":").map(Number);
+  base.setHours(p[0]||0, p[1]||0, p[2]||0, 0);
+  setCaseTime(id, stepId, key, base.toISOString());
+}
+function editScore(id, stepId, val){
+  setCaseTime(id, stepId, "value", val === "" ? null : Number(val));
+}
+function editText(id, stepId, val){
+  setCaseTime(id, stepId, "value", val.trim() === "" ? null : val);
+}
+function editChoice(id, stepId, idx){
+  const c = state.cases[id]; if(!c) return;
+  const st = flatSteps(getProto(c)).find(s => s.id === stepId);
+  const opts = (st && st.options && st.options.length) ? st.options : ["陰性","陽性"];
+  if(!c.times) c.times = {};
+  if(!c.times[stepId]) c.times[stepId] = {};
+  c.times[stepId].value = opts[idx];
+  c.times[stepId].by = CLIENT_ID;
+  if(devName()) c.times[stepId].byName = devName();
+  if(!c.times[stepId].start) c.times[stepId].start = nowIso();  // 選択時刻を自動記録
+  persist(); render();
+}
+
+/* ===== 他端末の記録に対する通知（工程ごとに なし/トースト/全画面 を設定可） ===== */
+/* この端末だけ症例アラートを止めるミュート（ローカル設定・同期されない） */
+const LS_MUTE = "strokeTracker.v1.muted";
+const LS_DEV = "strokeTracker.v1.devName";
+function devName(){
+  try{ return (localStorage.getItem(LS_DEV) || "").trim(); }catch(e){ return ""; }
+}
+function isMuted(){
+  try{ return localStorage.getItem(LS_MUTE) === "1"; }catch(e){ return false; }
+}
+function toggleMute(){
+  const m = !isMuted();
+  try{ localStorage.setItem(LS_MUTE, m ? "1" : "0"); }catch(e){}
+  applyMuteButton();
+  showBanner("", m ? "🔕 ミュートしました" : "🔔 ミュート解除",
+    m ? "この端末には症例アラートが表示されません（表示・記録は通常どおり）" : "症例アラートを再開します", "plain", 3200);
+}
+function applyMuteButton(){
+  const b = $("#muteBtn");
+  if(!b) return;
+  b.textContent = isMuted() ? "🔕 ミュート中" : "🔔";
+  b.className = "btn" + (isMuted() ? " muted" : "");
+}
+function stepAlertMode(st){
+  return st.alert || (st.type === "prep" ? "flash" : "none");
+}
+function checkRemoteAlerts(oldS, newS){
+  if(isMuted()) return;
+  const flash = [], toast = [];
+  for(const c of Object.values(newS.cases || {})){
+    if(c.closed) continue;
+    const proto = newS.protocols[c.protoId] || Object.values(newS.protocols)[0];
+    if(!proto) continue;
+    for(const st of flatSteps(proto)){
+      const mode = stepAlertMode(st);
+      if(mode === "none") continue;
+      const nt = (c.times && c.times[st.id]) || {};
+      if(nt.by === CLIENT_ID) continue;
+      const oc = oldS && oldS.cases && oldS.cases[c.id];
+      const ot = (oc && oc.times && oc.times[st.id]) || {};
+      const custom = st.alertMsg && st.alertMsg.trim();
+      const events = [];
+      if(st.type === "choice" || st.type === "score" || st.type === "text"){
+        if(nt.value != null && nt.value !== ot.value) events.push({ t: nt.start || "", suf: "：" + nt.value });
+      } else {
+        if(nt.start && !ot.start) events.push({ t: nt.start,
+          suf: st.type === "range" ? "を開始" : st.type === "prep" ? " になりました" : "を記録" });
+        if(nt.end && !ot.end) events.push({ t: nt.end, suf: "が終了" });
+      }
+      const who = nt.byName ? "　＠" + nt.byName : "";
+      for(const ev of events){
+        const base = custom ? custom : st.name + ev.suf;
+        const time = ev.t ? " " + fmtHMS(ev.t) : "";
+        if(mode === "flash"){
+          flash.push({ chip: c.label + "｜" + proto.name, color: protoColor(proto), text: base + time + who });
+        } else {
+          toast.push("【" + c.label + "｜" + proto.name + "】" + base + time + who);
+        }
+      }
+    }
+  }
+  if(flash.length) showPrepAlert(flash);
+  if(toast.length) showBanner("", "更新通知", toast.join(" ／ "), "plain", 5200);
+}
+function showPrepAlert(items){
+  try{
+    let bg = document.getElementById("prepAlert");
+    if(!bg){
+      bg = document.createElement("div");
+      bg.id = "prepAlert";
+      bg.className = "alert-bg";
+      bg.innerHTML = '<div class="alert-card">' +
+        '<div class="alert-title">🔔 お知らせ</div>' +
+        '<ul id="prepAlertList"></ul>' +
+        '<button class="btn primary alert-ok" onclick="document.getElementById(\'prepAlert\').remove()">確認</button></div>';
+      document.body.appendChild(bg);
+    }
+    const ul = document.getElementById("prepAlertList");
+    for(const t of items){
+      const li = document.createElement("li");
+      if(typeof t === "object" && t.chip){
+        li.innerHTML = '<span class="alert-chip" style="background:' + t.color + '">' + esc(t.chip) + '</span>' + esc(t.text);
+      } else {
+        li.textContent = t;
+      }
+      ul.appendChild(li);
+    }
+  }catch(e){}
+}
+function renameCase(id, name){
+  const c = state.cases[id]; if(!c) return;
+  c.label = name; persist();
+}
+function toggleClosed(id){
+  const c = state.cases[id]; if(!c) return;
+  if(!c.closed){
+    const proto = getProto(c);
+    const s = getCaseTime(c, proto.startStepId, "start");
+    const g = getCaseTime(c, proto.goalStepId, "start");
+    let msg = "症例「" + c.label + "」を終了して登録します。\n\n";
+    if(s && g){
+      const mins = minutesFrom(s, g);
+      msg += stepName(proto, proto.startStepId) + "→" + stepName(proto, proto.goalStepId) +
+        " の所要時間は " + mins + "分でした。\n目標 " + proto.targetMin + "分 → " +
+        (mins <= proto.targetMin ? "達成 ✓" : (mins - proto.targetMin) + "分超過");
+    } else if(s){
+      let last = null;
+      for(const st of flatSteps(proto)){
+        const t = c.times && c.times[st.id];
+        if(!t || t.skipped) continue;
+        for(const k of ["start","end"]) if(t[k] && (!last || t[k] > last)) last = t[k];
+      }
+      msg += "目標の工程（" + stepName(proto, proto.goalStepId) + "）は未記録です。\n" +
+        "起点から最終記録までは " + (last ? minutesFrom(s, last) : 0) + "分でした。";
+    } else {
+      msg += "起点の工程が未記録のため、所要時間は計算できません。";
+    }
+    msg += "\n\nよろしいですか？";
+    if(!confirm(msg)) return;
+  }
+  c.closed = !c.closed; persist(); render();
+}
+function removeCase(id){
+  const c = state.cases[id]; if(!c) return;
+  if(!confirm("本当に「" + c.label + "」を削除していいですか？\n記録はすべて消え、全拠点から見えなくなります。")) return;
+  delete state.cases[id];
+  if(fbReady) fb.child("cases/"+id).remove();
+  persist(); render();
+}
+function togglePrep(id, stepId){
+  const c = state.cases[id]; if(!c) return;
+  const cur = getCaseTime(c, stepId, "start");
+  if(cur){
+    if(!confirm(stepName(getProto(c), stepId) + " の準備OKを取り消しますか？")) return;
+    setCaseTime(id, stepId, "start", null);
+  } else {
+    stamp(id, stepId, "start");
+  }
+}
+
+/* ================= 状況テキスト ================= */
+function statusText(c){
+  const proto = getProto(c);
+  let latest = null;
+  for(const st of flatSteps(proto)){
+    const t = c.times && c.times[st.id];
+    if(!t || t.skipped) continue;
+    for(const k of ["start","end"]){
+      if(t[k] && (!latest || t[k] > latest.time)){
+        latest = { time: t[k], step: st, key: k };
+      }
+    }
+  }
+  if(!latest) return "未開始 — 起点の工程を記録してください";
+  const st = latest.step;
+  if(st.type === "prep") return st.name + " ✓（" + fmtHMS(latest.time) + "）";
+  if(st.type === "choice") return st.name + "：" + (getCaseTime(c, st.id, "value") || "") + "（" + fmtHMS(latest.time) + "）";
+  if(st.type === "range" && latest.key === "start" && !getCaseTime(c, st.id, "end"))
+    return st.name + " 実施中（" + fmtHMS(latest.time) + "〜）";
+  return st.name + " " + (st.type==="range" ? "完了" : "記録") + "（" + fmtHMS(latest.time) + "）";
+}
+
+/* 大工程の進行状態: done / active / next / todo / skipped / pend
+   準備フラグは順不同（並列）なので「次」の判定から除外する */
+function stepStates(c){
+  const proto = getProto(c);
+  const map = {};
+  let nextAssigned = false;
+  for(const st of proto.steps){
+    const t = (c.times && c.times[st.id]) || {};
+    if(t.skipped){ map[st.id] = "skipped"; continue; }
+    if(st.type === "prep"){ map[st.id] = t.start ? "done" : "pend"; continue; }
+    let done = false, active = false;
+    if(st.type === "range"){ done = !!t.end; active = !!t.start && !t.end; }
+    else if(st.type === "score" || st.type === "text" || st.type === "choice"){ done = t.value != null; }
+    else { done = !!t.start; }
+    if(done) map[st.id] = "done";
+    else if(active) map[st.id] = "active";
+    else if(!nextAssigned){ map[st.id] = "next"; nextAssigned = true; }
+    else map[st.id] = "todo";
+  }
+  return map;
+}
+
+/* ================= 描画 ================= */
+function render(){
+  const ae = document.activeElement;
+  if(ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA") && !$("#settingsModal").classList.contains("show")){
+    clearTimeout(render._t); render._t = setTimeout(render, 1500); return;
+  }
+  const wrap = $("#casesWrap");
+  const all = Object.values(state.cases);
+  const closedCount = all.filter(c => c.closed).length;
+  $("#archiveBtn").textContent = "📁 終了症例（" + closedCount + "）";
+  const cases = all.filter(c => !c.closed).sort((a,b)=> (b.createdAt||"").localeCompare(a.createdAt||""));
+  const strip = '<div class="topboard" id="topboard">' + renderCounts(cases) + renderDepts() + '</div>';
+  if(!cases.length){
+    wrap.innerHTML = strip + '<div class="empty">「＋ 新規症例」で記録を開始します。<br>患者情報は入力せず、匿名ラベルのみ使用してください。' +
+      (closedCount ? '<br><br>終了した症例は「📁 終了症例」から確認できます。' : '') + '</div>';
+    fixTopboard();
+    return;
+  }
+  wrap.innerHTML = strip + cases.map(renderCase).join("");
+  fixTopboard();
+  tick();
+}
+
+/* 固定バーの位置をヘッダーの実際の高さに合わせる（画面幅で高さが変わるため） */
+function fixTopboard(){
+  try{
+    const tb = document.getElementById("topboard");
+    const hd = document.querySelector("header");
+    if(tb && hd && hd.offsetHeight) tb.style.top = hd.offsetHeight + "px";
+  }catch(e){}
+}
+try{ window.addEventListener("resize", fixTopboard); }catch(e){}
+
+/* ===== 進行中の症例数（プロトコル別） ===== */
+function renderCounts(activeCases){
+  const byProto = {};
+  for(const c of activeCases){
+    const p = getProto(c);
+    if(!byProto[p.id]) byProto[p.id] = { proto: p, n: 0 };
+    byProto[p.id].n++;
+  }
+  const chips = Object.values(byProto).map(x =>
+    '<span class="count-chip" style="background:'+protoColor(x.proto)+'">'+esc(x.proto.name)+'<b>'+x.n+'</b></span>'
+  ).join("");
+  const n = activeCases.length;
+  return '<div class="counts"><span class="count-total'+(n?" active":"")+'">'+
+    (n ? "🚨 進行中 "+n+"件" : "進行中 0件")+'</span>'+chips+'</div>';
+}
+
+/* ===== 部署ステータスボード ===== */
+function renderDepts(){
+  const depts = state.depts || [];
+  if(!depts.length) return "";
+  return '<div class="depts">' + depts.map(d => {
+    const cur = d.statuses[d.current] || d.statuses[0] || {color:"#78909c", label:"—"};
+    const urgent = cur.blink !== undefined ? !!cur.blink : cur.color === "#c62828";  // 点滅設定（未設定なら赤のみ）
+    const btns = (d.statuses||[]).map((s,i) => {
+      const on = i === (d.current||0);
+      const style = on
+        ? 'background:'+s.color+';border-color:'+s.color+';color:#fff'
+        : 'background:#fff;border-color:'+s.color+';color:'+s.color;
+      return '<button class="dst'+(on?" on":"")+'" style="'+style+'" onclick="setDeptStatus(\''+d.id+'\','+i+')">'+esc(s.label)+'</button>';
+    }).join("");
+    return '<div class="dept">' +
+      '<div class="dept-cur'+(urgent?" urgent":"")+'" style="background:'+cur.color+'">' +
+        '<span class="dname">'+esc(d.name)+'</span>' +
+        '<span class="dstat">'+esc(cur.label)+'</span>' +
+      '</div>' +
+      '<div class="dept-body">'+btns+
+        (d.updatedAt ? '<span class="lap">'+fmtHMS(d.updatedAt)+' 更新'+(d.byName?'（'+esc(d.byName)+'）':'')+'</span>' : "")+
+      '</div></div>';
+  }).join("") + '</div>';
+}
+function setDeptStatus(id, idx){
+  const d = (state.depts||[]).find(x => x.id === id);
+  if(!d || !d.statuses[idx]) return;
+  d.current = idx;
+  d.updatedAt = nowIso();
+  d.by = CLIENT_ID;
+  d.byName = devName() || null;
+  persist(); render();
+}
+
+/* ================= 終了症例（アーカイブ） ================= */
+function openArchive(){
+  renderArchive();
+  $("#archiveModal").classList.add("show");
+}
+function closeArchive(){ $("#archiveModal").classList.remove("show"); }
+function renderArchive(){
+  const closed = Object.values(state.cases).filter(c => c.closed)
+    .sort((a,b)=> (b.createdAt||"").localeCompare(a.createdAt||""));
+  if(!closed.length){
+    $("#archiveList").innerHTML = '<p class="hint">終了した症例はまだありません。</p>';
+    return;
+  }
+  let html = '<table class="steps"><tbody>' +
+    '<tr><td class="step-name">症例</td><td>プロトコル</td><td>起点→目標</td><td></td></tr>';
+  for(const c of closed){
+    const proto = getProto(c);
+    const s = getCaseTime(c, proto.startStepId, "start");
+    const g = getCaseTime(c, proto.goalStepId, "start");
+    const durMin = (s && g) ? minutesFrom(s,g) : null;
+    const dur = durMin != null ? (durMin <= proto.targetMin ? "🏆 " : "") + durMin + "分" : "—";
+    const d = new Date(c.createdAt);
+    html += '<tr><td class="step-name">'+esc(c.label)+'<span class="lap">'+(d.getMonth()+1)+'/'+d.getDate()+'</span></td>' +
+      '<td>'+esc(proto.name)+'</td>' +
+      '<td><b>'+dur+'</b>'+(s?'<span class="lap">'+fmtHMS(s)+(g?'→'+fmtHMS(g):'')+'</span>':'')+'</td>' +
+      '<td style="text-align:right; white-space:nowrap">' +
+        '<button class="btn small" onclick="reopenCase(\''+c.id+'\')">編集</button> ' +
+        '<button class="btn small danger" onclick="removeCase(\''+c.id+'\'); renderArchive()">削除</button></td></tr>';
+  }
+  $("#archiveList").innerHTML = html + '</tbody></table>';
+}
+function reopenCase(id){
+  const c = state.cases[id]; if(!c) return;
+  c.closed = false; persist(); render(); closeArchive();
+}
+function csvEsc(v){
+  v = String(v==null?"":v);
+  return /[",\n]/.test(v) ? '"' + v.replace(/"/g,'""') + '"' : v;
+}
+/* プロトコルごとの表データを作る共通関数（1行＝1症例の横持ち） */
+function buildExportBlocks(){
+  const cases = Object.values(state.cases).filter(c => c.closed)
+    .sort((a,b)=> (a.createdAt||"").localeCompare(b.createdAt||""));
+  const byProto = {};
+  for(const c of cases){
+    const pid = getProto(c).id;
+    (byProto[pid] = byProto[pid] || []).push(c);
+  }
+  const blocks = [];
+  for(const pid of Object.keys(byProto)){
+    const proto = state.protocols[pid] || getProto(byProto[pid][0]);
+    const steps = flatSteps(proto);
+    const head = ["症例","作成日"];
+    for(const st of steps){
+      if(st.type === "range"){ head.push(st.name + " 開始", st.name + " 終了"); }
+      else head.push(st.name);
+    }
+    head.push(stepName(proto, proto.startStepId) + "→" + stepName(proto, proto.goalStepId) + "（分）");
+    const rows = [];
+    for(const c of byProto[pid]){
+      const s0 = getCaseTime(c, proto.startStepId, "start");
+      const g0 = getCaseTime(c, proto.goalStepId, "start");
+      const row = [c.label, c.createdAt ? c.createdAt.slice(0,10) : ""];
+      for(const st of steps){
+        const t = (c.times && c.times[st.id]) || {};
+        if(t.skipped){
+          row.push("スキップ");
+          if(st.type === "range") row.push("スキップ");
+          continue;
+        }
+        if(st.type === "range"){
+          row.push(t.start ? fmtHMS(t.start) : "", t.end ? fmtHMS(t.end) : "");
+        } else if(st.type === "score" || st.type === "text" || st.type === "choice"){
+          row.push(t.value != null ? t.value : "");
+        } else {
+          row.push(t.start ? fmtHMS(t.start) : "");
+        }
+      }
+      row.push((s0 && g0) ? minutesFrom(s0, g0) : "");
+      rows.push(row);
+    }
+    blocks.push({ proto, head, rows });
+  }
+  return blocks;
+}
+function exportStamp(){
+  const d = new Date();
+  return d.getFullYear() + String(d.getMonth()+1).padStart(2,"0") + String(d.getDate()).padStart(2,"0");
+}
+function exportCsv(){
+  const blocks = buildExportBlocks();
+  if(!blocks.length){ alert("終了した症例がありません。"); return; }
+  const rows = [];
+  for(const b of blocks){
+    rows.push(["プロトコル"].concat(b.head));
+    for(const r of b.rows) rows.push([b.proto.name].concat(r));
+    rows.push([]);
+  }
+  const csv = "﻿" + rows.map(r => r.map(csvEsc).join(",")).join("\r\n");
+  const blob = new Blob([csv], {type:"text/csv;charset=utf-8"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "time-tracker_" + exportStamp() + ".csv";
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+function renderCase(c){
+  const proto = getProto(c);
+  const startIso = getCaseTime(c, proto.startStepId, "start");
+  const goalIso  = getCaseTime(c, proto.goalStepId, "start");
+  const states = stepStates(c);
+  let rows = "";
+  for(const st of proto.steps){
+    rows += renderStep(c, st, startIso, states[st.id], false);
+    for(const ch of (st.children||[])) rows += renderStep(c, ch, startIso, null, true);
+  }
+  const chips = proto.steps.filter(st => st.type !== "prep").map(st => {
+    const cls = states[st.id];
+    const mark = cls==="done" ? "✓ " : cls==="active" ? "▶ " : cls==="next" ? "→ " : "";
+    return '<span class="chip '+cls+'">'+mark+esc(st.name)+'</span>';
+  }).join("");
+  const preps = flatSteps(proto).filter(st => st.type === "prep" && !((c.times||{})[st.id]||{}).skipped).map(st => {
+    const t = (c.times && c.times[st.id]) || {};
+    const on = !!t.start;
+    const pop = (on && lastStamp && lastStamp.cid===c.id && lastStamp.sid===st.id && (Date.now()-lastStamp.t) < 1500) ? " pop" : "";
+    return '<button class="prep-chip'+(on?" on":"")+pop+'" onclick="togglePrep(\''+c.id+'\',\''+st.id+'\')">' +
+      (on ? esc(st.name)+"　済 "+fmtHMS(t.start) : esc(st.name)+"　未") + '</button>';
+  }).join("");
+  const prepStrip = preps ? '<div class="flow preps"><span class="preps-label">準備（順不同）</span>'+preps+'</div>' : "";
+  const pc = protoColor(proto);
+  const achMin = (startIso && goalIso) ? minutesFrom(startIso, goalIso) : null;
+  const achieved = achMin != null && achMin <= proto.targetMin;
+  return '<section class="case'+(achieved?" achieved":"")+'" data-id="'+c.id+'" style="border-left:7px solid '+pc+'">' +
+    '<div class="case-head">' +
+      '<input class="case-label" value="'+esc(c.label)+'" onchange="renameCase(\''+c.id+'\', this.value)">' +
+      '<span class="proto-badge" style="background:'+pc+';color:#fff">'+esc(proto.name)+'</span>' +
+      (achieved ? '<span class="ach-badge">🏆 目標達成 '+achMin+'分！ お疲れさまでした</span>' : "") +
+      '<span class="now-status'+(/実施中/.test(statusText(c))?" live":"")+'">'+esc(statusText(c))+'</span>' +
+      '<div><div class="clock wait" data-clock data-start="'+(startIso||"")+'" data-goal="'+(goalIso||"")+'" ' +
+        'data-target="'+proto.targetMin+'" data-warn="'+proto.warnMin+'">--:--</div>' +
+      '<div class="clock-sub">'+esc(stepName(proto,proto.startStepId))+'→'+esc(stepName(proto,proto.goalStepId))+' 目標 '+proto.targetMin+'分</div></div>' +
+    '</div>' +
+    '<div class="flow">'+chips+'</div>' +
+    prepStrip +
+    '<table class="steps"><tbody>'+rows+'</tbody></table>' +
+    '<div class="case-foot">' +
+      '<button class="btn small" onclick="toggleClosed(\''+c.id+'\')">'+(c.closed?"再開":"症例を終了")+'</button>' +
+      '<button class="btn small danger" onclick="removeCase(\''+c.id+'\')">削除</button>' +
+    '</div></section>';
+}
+function renderStep(c, st, startIso, stCls, isChild){
+  const t = (c.times && c.times[st.id]) || {};
+  const skipped = !!t.skipped;
+  const cid = c.id, sid = st.id;
+  const marker = stCls==="active" ? '<span class="marker active">▶ 実施中</span>'
+               : stCls==="next"   ? '<span class="marker next">→ 次</span>' : "";
+  const lap = (iso) => (startIso && iso) ? '<span class="lap">+'+minutesFrom(startIso, iso)+'分</span>' : "";
+  /* 操作列は「今できる操作を1つだけ」表示し、済んだら ✓ に置き換える */
+  const done = '<span class="donemark">✓ 済</span>';
+  const btn = (label, key, prep) =>
+    skipped ? "" : '<button class="tbtn'+(prep?" prep":"")+'" onclick="stamp(\''+cid+'\',\''+sid+'\',\''+key+'\')">'+label+'</button>';
+  let acts = "", times = "";
+  if(st.type === "prep"){
+    acts = t.start ? done : btn("未","start",true);
+    times = timeInput(cid,sid,"start",t.start,"");
+  } else if(st.type === "score"){
+    acts = '<input class="tm score" type="number" min="0" step="0.1" inputmode="decimal" placeholder="値" ' +
+           'value="'+(t.value!=null?t.value:"")+'" '+(skipped?"disabled ":"")+
+           'onchange="editScore(\''+cid+'\',\''+sid+'\', this.value)"> <span class="tm-label">点</span>';
+    times = "";
+  } else if(st.type === "choice"){
+    const opts = (st.options && st.options.length) ? st.options : ["陰性","陽性"];
+    acts = opts.map((o,i) =>
+      '<label class="radio"><input type="radio" name="rd_'+cid+'_'+sid+'" ' +
+      (t.value===o?"checked ":"") + (skipped?"disabled ":"") +
+      'onchange="editChoice(\''+cid+'\',\''+sid+'\','+i+')"> '+esc(o)+'</label>').join("");
+    times = timeInput(cid,sid,"start",t.start,"");
+  } else if(st.type === "text"){
+    acts = "";
+    times = '<input class="tm memo" type="text" placeholder="メモを入力" ' +
+           'value="'+esc(t.value!=null?t.value:"")+'" '+(skipped?"disabled ":"")+
+           'onchange="editText(\''+cid+'\',\''+sid+'\', this.value)">';
+  } else if(st.type === "single"){
+    acts = t.start ? done : btn("記録","start");
+    times = timeInput(cid,sid,"start",t.start,"");
+  } else {
+    acts = !t.start ? btn("開始","start") : (!t.end ? btn("終了","end") : done);
+    times = timeInput(cid,sid,"start",t.start,"開始") + " " + timeInput(cid,sid,"end",t.end,"終了");
+  }
+  let rowCls = skipped ? "skipped" : (stCls==="active"||stCls==="next" ? stCls : "");
+  if(lastStamp && lastStamp.cid===cid && lastStamp.sid===sid && (Date.now()-lastStamp.t) < 1500) rowCls += " justdone";
+  return '<tr class="'+rowCls+(isChild?" childrow":"")+'">' +
+    '<td class="step-name">'+(isChild?"└ ":"")+marker+esc(st.name)+lap(t.start)+'</td>' +
+    '<td class="acts">'+acts+'</td>' +
+    '<td>'+times+'</td>' +
+    '<td class="skipcell" style="text-align:right"><button class="skipbtn" onclick="toggleSkip(\''+cid+'\',\''+sid+'\')">'+(skipped?"戻す":"スキップ")+'</button></td>' +
+    '</tr>';
+}
+function timeInput(cid, sid, key, iso, label){
+  if(!iso) return "";   // 未記録の欄は表示しない（記録後に編集可能な入力欄が出る）
+  return '<span class="tm-label">'+(label||"")+'</span>' +
+    '<input class="tm" type="time" step="1" value="'+fmtHMS(iso)+'" ' +
+    'onchange="editTime(\''+cid+'\',\''+sid+'\',\''+key+'\', this.value)">';
+}
+
+/* 経過タイマー（1秒毎、クロック要素のみ更新） */
+function tick(){
+  document.querySelectorAll("[data-clock]").forEach(el => {
+    const startIso = el.dataset.start, goalIso = el.dataset.goal;
+    const target = Number(el.dataset.target)||60, warn = Number(el.dataset.warn)||45;
+    if(!startIso){ el.className = "clock wait"; el.textContent = "待機中"; return; }
+    const end = goalIso ? new Date(goalIso) : new Date();
+    const ms = end - new Date(startIso);
+    el.textContent = fmtElapsed(ms);
+    const min = ms/60000;
+    if(goalIso)             el.className = "clock done";
+    else if(min >= target)  el.className = "clock over";
+    else if(min >= warn)    el.className = "clock warn";
+    else                    el.className = "clock ok";
+    // 動作中は毎秒「鼓動」させる（超過中は震え）
+    if(!goalIso){
+      void el.offsetWidth;          // アニメーション再トリガー
+      el.classList.add("beat");
+    }
+  });
+}
+setInterval(tick, 1000);
+
+/* ================= 設定画面 ================= */
+let editorProtos = {};
+let editorDepts = [];
+let curEditId = null;
+function openSettings(){
+  editorProtos = deepCopy(state.protocols);
+  editorDepts = deepCopy(state.depts || []);
+  renderDeptsEditor();
+  showSettingsTab("main");
+  protoOrderOpen = false;
+  curEditId = Object.keys(editorProtos)[0];
+  try{
+    const c = JSON.parse(localStorage.getItem(LS_CONN) || "null");
+    $("#setFbConfig").value = c && c.conf ? JSON.stringify(c.conf, null, 2) : "";
+    $("#setRoom").value = c && c.room ? c.room : "";
+    $("#setRoomKey").value = c && (c.key || c.room) ? (c.key || c.room) : "";
+  }catch(e){}
+  $("#setDevName").value = devName();
+  $("#setAppName").value = state.appName || "";
+  const N = state.notify || {};
+  $("#setHookUrl").value = N.url || "";
+  $("#setNotifyStart").checked = N.onStart !== false;
+  $("#setNotifyGoal").checked = N.onGoal !== false;
+  fillEditorFields();
+  $("#settingsModal").classList.add("show");
+}
+function closeSettings(){ $("#settingsModal").classList.remove("show"); }
+function showSettingsTab(t){
+  $("#tabMain").style.display = t === "main" ? "" : "none";
+  $("#tabBoard").style.display = t === "board" ? "" : "none";
+  $("#stabMain").className = "stab" + (t === "main" ? " on" : "");
+  $("#stabBoard").className = "stab" + (t === "board" ? " on" : "");
+}
+function curProto(){ return editorProtos[curEditId]; }
+function fillEditorFields(){
+  const list = protoList(editorProtos);
+  $("#setProtoSel").innerHTML = list.map(p =>
+    '<option value="'+p.id+'">'+esc(p.name)+'</option>').join("");
+  $("#setProtoSel").value = curEditId;
+  renderProtoOrder();
+  const p = curProto();
+  $("#setProtoName").value = p.name;
+  $("#setProtoColor").value = p.color || "#1565c0";
+  $("#setTarget").value = p.targetMin;
+  $("#setWarn").value = p.warnMin;
+  renderEditor();
+}
+function commitEditorFields(){
+  const p = curProto(); if(!p) return;
+  p.name = $("#setProtoName").value.trim() || p.name;
+  p.color = $("#setProtoColor").value || p.color;
+  p.targetMin = Math.max(1, Number($("#setTarget").value) || p.targetMin);
+  p.warnMin = Math.max(1, Number($("#setWarn").value) || p.warnMin);
+  p.startStepId = $("#setStart").value || p.startStepId;
+  p.goalStepId = $("#setGoal").value || p.goalStepId;
+}
+function editorSwitchProto(id){
+  commitEditorFields();
+  curEditId = id;
+  fillEditorFields();
+}
+/* 並び替えパネル（ボタンで開閉・縦リスト） */
+let protoOrderOpen = false;
+function toggleProtoOrder(){
+  protoOrderOpen = !protoOrderOpen;
+  renderProtoOrder();
+}
+function renderProtoOrder(){
+  const el = $("#protoOrderView");
+  if(!protoOrderOpen){ el.style.display = "none"; el.innerHTML = ""; return; }
+  el.style.display = "block";
+  const list = protoList(editorProtos);
+  el.innerHTML = list.map((p, i) =>
+    '<div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">' +
+      '<button class="btn small" '+(i===0?'disabled':'')+' onclick="editorMoveProtoAt('+i+',-1)">↑</button>' +
+      '<button class="btn small" '+(i===list.length-1?'disabled':'')+' onclick="editorMoveProtoAt('+i+',1)">↓</button>' +
+      '<span style="font-size:14px; font-weight:800; padding:7px 16px; border-radius:14px; background:'+protoColor(p)+'; color:#fff;">' +
+        (i+1) + '. ' + esc(p.name) + '</span>' +
+    '</div>'
+  ).join("");
+}
+function editorMoveProtoAt(i, dir){
+  const list = protoList(editorProtos);
+  const j = i + dir;
+  if(j < 0 || j >= list.length) return;
+  const tmp = list[i].order; list[i].order = list[j].order; list[j].order = tmp;
+  fillEditorFields();
+}
+function editorNewProto(){
+  commitEditorFields();
+  const id = uid();
+  const s1 = uid();
+  const maxOrder = Math.max(-1, ...Object.values(editorProtos).map(p => p.order||0));
+  editorProtos[id] = {id, name:"新しいプロトコル", order:maxOrder+1, targetMin:60, warnMin:45,
+    startStepId:s1, goalStepId:s1,
+    steps:[{id:s1, name:"到着", type:"single", children:[]}]};
+  curEditId = id;
+  fillEditorFields();
+}
+function editorCopyProto(){
+  commitEditorFields();
+  const src = deepCopy(curProto());
+  src.id = uid();
+  src.name = src.name + "のコピー";
+  src.order = Math.max(-1, ...Object.values(editorProtos).map(p => p.order||0)) + 1;
+  editorProtos[src.id] = src;
+  curEditId = src.id;
+  fillEditorFields();
+}
+function editorDelProto(){
+  if(Object.keys(editorProtos).length <= 1){ alert("最後のプロトコルは削除できません。"); return; }
+  const used = Object.values(state.cases).some(c => c.protoId === curEditId);
+  if(used){ alert("このプロトコルを使用中の症例があるため削除できません。"); return; }
+  if(!confirm("「" + curProto().name + "」を削除しますか？")) return;
+  delete editorProtos[curEditId];
+  curEditId = Object.keys(editorProtos)[0];
+  fillEditorFields();
+}
+function typeSelect(onchange, type){
+  return '<select onchange="'+onchange+';renderEditor()">' +
+    '<option value="range"'+(type==="range"?" selected":"")+'>開始/終了</option>' +
+    '<option value="single"'+(type==="single"?" selected":"")+'>時刻のみ</option>' +
+    '<option value="prep"'+(type==="prep"?" selected":"")+'>準備フラグ</option>' +
+    '<option value="score"'+(type==="score"?" selected":"")+'>点数入力</option>' +
+    '<option value="text"'+(type==="text"?" selected":"")+'>テキスト</option>' +
+    '<option value="choice"'+(type==="choice"?" selected":"")+'>選択肢</option>' +
+    '</select>';
+}
+function parseOptions(v){
+  return String(v).split(/[,、]/).map(s => s.trim()).filter(Boolean);
+}
+/* ===== 部署ステータスの編集 ===== */
+const DEPT_COLORS = [
+  ["#2e7d32","緑"], ["#f9a825","黄"], ["#c62828","赤"], ["#1565c0","青"], ["#78909c","グレー"], ["#6a1b9a","紫"]
+];
+function deptColorSelect(path, color){
+  return '<select onchange="'+path+'.color=this.value;renderDeptsEditor()" style="border-left:14px solid '+color+'">' +
+    DEPT_COLORS.map(c => '<option value="'+c[0]+'"'+(c[0]===color?" selected":"")+'>'+c[1]+'</option>').join("") +
+    '</select>';
+}
+function renderDeptsEditor(){
+  let html = "";
+  editorDepts.forEach((d, i) => {
+    html += '<div class="frow" style="margin-top:10px">' +
+      '<button class="btn small" onclick="editorMoveDept('+i+',-1)">↑</button>' +
+      '<button class="btn small" onclick="editorMoveDept('+i+',1)">↓</button>' +
+      '<input type="text" value="'+esc(d.name)+'" style="font-weight:700" onchange="editorDepts['+i+'].name=this.value">' +
+      '<button class="btn small danger" onclick="editorDelDept('+i+')">部署を削除</button>' +
+      '</div>';
+    (d.statuses||[]).forEach((s, j) => {
+      const blinkOn = s.blink !== undefined ? !!s.blink : s.color === "#c62828";
+      html += '<div class="frow childedit" style="margin-left:34px; background:#fafbfd; border-left:3px solid '+s.color+'; padding:4px 6px; border-radius:6px">' +
+        '<input type="text" value="'+esc(s.label)+'" onchange="editorDepts['+i+'].statuses['+j+'].label=this.value">' +
+        deptColorSelect("editorDepts["+i+"].statuses["+j+"]", s.color) +
+        '<label style="min-width:0; white-space:nowrap; font-size:13px"><input type="checkbox" '+(blinkOn?"checked ":"")+
+          'onchange="editorDepts['+i+'].statuses['+j+'].blink=this.checked"> 点滅</label>' +
+        '<button class="btn small danger" onclick="editorDelStatus('+i+','+j+')">✕</button>' +
+        '</div>';
+    });
+    html += '<button class="addchild" onclick="editorAddStatus('+i+')">＋ステータスを追加（'+esc(d.name)+'）</button>';
+  });
+  $("#deptsEditor").innerHTML = html;
+}
+function editorAddDept(){
+  editorDepts.push({ id: uid(), name:"新しい部署", current:0,
+    statuses:[{label:"利用可", color:"#2e7d32"},{label:"利用不可", color:"#c62828"}] });
+  renderDeptsEditor();
+}
+function editorDelDept(i){ editorDepts.splice(i,1); renderDeptsEditor(); }
+function editorMoveDept(i,d){
+  const j = i + d;
+  if(j < 0 || j >= editorDepts.length) return;
+  [editorDepts[i], editorDepts[j]] = [editorDepts[j], editorDepts[i]];
+  renderDeptsEditor();
+}
+function editorAddStatus(i){
+  editorDepts[i].statuses.push({label:"新しいステータス", color:"#78909c"});
+  renderDeptsEditor();
+}
+function editorDelStatus(i,j){
+  const d = editorDepts[i];
+  d.statuses.splice(j,1);
+  if(d.current >= d.statuses.length) d.current = Math.max(0, d.statuses.length-1);
+  renderDeptsEditor();
+}
+function alertSelect(path, st){
+  const cur = stepAlertMode(st);
+  let h = '<select onchange="'+path+'.alert=this.value;renderEditor()" title="他端末への通知">' +
+    '<option value="none"'+(cur==="none"?" selected":"")+'>🔕 通知なし</option>' +
+    '<option value="toast"'+(cur==="toast"?" selected":"")+'>💬 トースト</option>' +
+    '<option value="flash"'+(cur==="flash"?" selected":"")+'>🚨 全画面点滅</option>' +
+    '</select>';
+  if(cur !== "none"){
+    h += '<input type="text" style="max-width:190px" placeholder="通知文言（空欄なら自動）" ' +
+      'value="'+esc(st.alertMsg||"")+'" onchange="'+path+'.alertMsg=this.value">';
+  }
+  return h;
+}
+function optionsInput(path, st){
+  if(st.type !== "choice") return "";
+  const val = (st.options && st.options.length ? st.options : ["陰性","陽性"]).join("、");
+  return '<input type="text" value="'+esc(val)+'" style="max-width:170px" ' +
+    'placeholder="選択肢を「、」区切りで" onchange="'+path+'.options=parseOptions(this.value)">';
+}
+function renderEditor(){
+  const p = curProto();
+  let html = "";
+  p.steps.forEach((st, i) => {
+    html += '<div class="frow">' +
+      '<button class="btn small" onclick="editorMove('+i+',-1)">↑</button>' +
+      '<button class="btn small" onclick="editorMove('+i+',1)">↓</button>' +
+      '<input type="text" value="'+esc(st.name)+'" onchange="curProto().steps['+i+'].name=this.value">' +
+      typeSelect("curProto().steps["+i+"].type=this.value", st.type) +
+      optionsInput("curProto().steps["+i+"]", st) +
+      alertSelect("curProto().steps["+i+"]", st) +
+      '<button class="btn small danger" onclick="editorDel('+i+')">✕</button>' +
+      '</div>';
+    (st.children||[]).forEach((ch, j) => {
+      html += '<div class="frow childedit">' +
+        '<button class="btn small" onclick="editorMoveChild('+i+','+j+',-1)">↑</button>' +
+        '<button class="btn small" onclick="editorMoveChild('+i+','+j+',1)">↓</button>' +
+        '<input type="text" value="'+esc(ch.name)+'" onchange="curProto().steps['+i+'].children['+j+'].name=this.value">' +
+        typeSelect("curProto().steps["+i+"].children["+j+"].type=this.value", ch.type) +
+        optionsInput("curProto().steps["+i+"].children["+j+"]", ch) +
+        alertSelect("curProto().steps["+i+"].children["+j+"]", ch) +
+        '<button class="btn small danger" onclick="editorDelChild('+i+','+j+')">✕</button>' +
+        '</div>';
+    });
+    html += '<button class="addchild" onclick="editorAddChild('+i+')">＋中項目を追加（'+esc(st.name)+'の下）</button>';
+  });
+  $("#stepsEditor").innerHTML = html;
+  const opts = p.steps.map(st => '<option value="'+st.id+'">'+esc(st.name)+'</option>').join("");
+  $("#setStart").innerHTML = opts; $("#setStart").value = p.startStepId;
+  $("#setGoal").innerHTML = opts;  $("#setGoal").value = p.goalStepId;
+}
+function editorMove(i, d){
+  const s = curProto().steps;
+  const j = i + d;
+  if(j < 0 || j >= s.length) return;
+  [s[i], s[j]] = [s[j], s[i]];
+  renderEditor();
+}
+function editorMoveChild(i, j, d){
+  const ch = curProto().steps[i].children;
+  const k = j + d;
+  if(k < 0 || k >= ch.length) return;
+  [ch[j], ch[k]] = [ch[k], ch[j]];
+  renderEditor();
+}
+function editorDel(i){ curProto().steps.splice(i,1); renderEditor(); }
+function editorDelChild(i,j){ curProto().steps[i].children.splice(j,1); renderEditor(); }
+function editorAddStep(){
+  curProto().steps.push({id: uid(), name:"新しい工程", type:"range", children:[]});
+  renderEditor();
+}
+function editorAddChild(i){
+  const st = curProto().steps[i];
+  if(!st.children) st.children = [];
+  st.children.push({id: uid(), name:"新しい中項目", type:"single"});
+  renderEditor();
+}
+function parseConfig(text){
+  text = text.trim();
+  if(!text) return null;
+  try{ return JSON.parse(text); }catch(e){}
+  try{
+    const m = text.match(/\{[\s\S]*\}/);
+    return (new Function("return " + (m ? m[0] : text)))();
+  }catch(e){ return undefined; }
+}
+function saveSettings(){
+  commitEditorFields();
+  for(const p of Object.values(editorProtos)){
+    p.steps = p.steps.filter(s => s.name.trim());
+    for(const st of p.steps){ st.children = (st.children||[]).filter(ch => ch.name.trim()); }
+    if(!p.steps.length){ alert("「"+p.name+"」に工程がありません。"); return; }
+    if(!p.steps.find(s=>s.id===p.startStepId)) p.startStepId = p.steps[0].id;
+    if(!p.steps.find(s=>s.id===p.goalStepId)) p.goalStepId = p.steps[p.steps.length-1].id;
+  }
+  try{ localStorage.setItem(LS_DEV, $("#setDevName").value.trim()); }catch(e){}
+  const confText = $("#setFbConfig").value;
+  const conf = parseConfig(confText);
+  const room = $("#setRoom").value.trim();
+  const key = $("#setRoomKey").value.trim();
+  if(conf === undefined){ alert("Firebase設定を読み取れません。firebaseConfig の { } 全体を貼り付けてください。"); return; }
+  if(conf && !conf.databaseURL){ alert("設定に databaseURL がありません。Realtime Database を作成し、databaseURL を含む設定を貼り付けてください。"); return; }
+  if(conf && !key){ alert("接続キーを入力するか「🎲 生成」を押してください。"); return; }
+
+  state.protocols = editorProtos;
+  for(const d of editorDepts){
+    d.name = (d.name||"").trim() || "部署";
+    d.statuses = (d.statuses||[]).filter(s => (s.label||"").trim());
+    if(d.current >= d.statuses.length) d.current = 0;
+  }
+  state.depts = editorDepts.filter(d => d.statuses.length);
+  state.appName = $("#setAppName").value.trim() || "医療タイムトラッカー";
+  applyAppName();
+  state.notify = {
+    url: $("#setHookUrl").value.trim(),
+    onStart: $("#setNotifyStart").checked,
+    onGoal: $("#setNotifyGoal").checked
+  };
+  migrate(state);
+  closeSettings();
+  persist(); render();
+
+  if(conf){
+    const prev = JSON.parse(localStorage.getItem(LS_CONN) || "null");
+    localStorage.setItem(LS_CONN, JSON.stringify({conf, room, key}));
+    const keyChanged = prev && (prev.key || prev.room) !== key;
+    if(!fbReady){
+      setBadge("local","接続中…");
+      connectFirebase(conf, key, room).catch(()=>{ setBadge("err","接続失敗（ローカル動作）"); });
+    } else if(keyChanged){
+      alert("接続キーを変更しました。ページを再読み込みすると新しいルームに接続します。");
+      location.reload();
+    } else {
+      persist();
+    }
+  } else {
+    localStorage.removeItem(LS_CONN);
+  }
+}
+
+/* ================= 起動 ================= */
+loadLocal();
+applyAppName();
+applyMuteButton();
+render();
+tryAutoConnect();
+</script>
+</body>
+</html>
