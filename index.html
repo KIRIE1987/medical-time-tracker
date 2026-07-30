@@ -1100,6 +1100,50 @@ function renderCallStrip(){
   if(!devName()) html += '<span class="hint">⚙設定で「この端末の名前」を付けると通話に参加できます</span>';
   el.innerHTML = html;
 }
+/* ===== 着信音（Web Audioで生成・大音量で鳴り続ける） ===== */
+let audioCtx = null, ringTimer = null;
+function ensureAudio(){
+  try{
+    if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if(audioCtx.state === "suspended") audioCtx.resume();
+  }catch(e){}
+}
+try{
+  document.addEventListener("click", ensureAudio);
+  document.addEventListener("touchstart", ensureAudio);
+}catch(e){}
+function ringBurst(vol){
+  if(!audioCtx) return;
+  try{
+    const t0 = audioCtx.currentTime;
+    /* プルルッ×2（2音重ねの電話ベル風） */
+    for(let i = 0; i < 2; i++){
+      const start = t0 + i * 0.45;
+      [880, 1180].forEach(f => {
+        const o = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        o.type = "square";
+        o.frequency.value = f;
+        g.gain.setValueAtTime(0, start);
+        g.gain.linearRampToValueAtTime(vol, start + 0.02);
+        g.gain.setValueAtTime(vol, start + 0.3);
+        g.gain.linearRampToValueAtTime(0, start + 0.35);
+        o.connect(g); g.connect(audioCtx.destination);
+        o.start(start); o.stop(start + 0.4);
+      });
+    }
+  }catch(e){}
+}
+function startRinger(vol, intervalMs){
+  ensureAudio();
+  stopRinger();
+  ringBurst(vol);
+  ringTimer = setInterval(() => ringBurst(vol), intervalMs);
+}
+function stopRinger(){
+  if(ringTimer){ clearInterval(ringTimer); ringTimer = null; }
+}
+
 function newPeer(sid){
   const p = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
   p.onicecandidate = e => {
@@ -1235,11 +1279,22 @@ function showCallUI(mode, name){
   if(!ui) return;
   ui.style.display = "flex";
   title.className = mode === "active" ? "" : "ringing";
-  if(mode === "calling"){ title.textContent = "📞 " + name + " を呼び出し中…"; acc.style.display = "none"; hang.textContent = "終了"; }
-  else if(mode === "incoming"){ title.textContent = "🔔 " + name + " から着信"; acc.style.display = ""; hang.textContent = "拒否"; }
-  else { title.textContent = name + " と通話中"; acc.style.display = "none"; hang.textContent = "終了"; }
+  if(mode === "calling"){
+    title.textContent = "📞 " + name + " を呼び出し中…";
+    acc.style.display = "none"; hang.textContent = "終了";
+    startRinger(0.08, 3000);          // 発信側は控えめな呼出音
+  } else if(mode === "incoming"){
+    title.textContent = "🔔 " + name + " から着信";
+    acc.style.display = ""; hang.textContent = "拒否";
+    startRinger(0.9, 1400);           // 着信側は大音量で鳴り続ける
+  } else {
+    title.textContent = name + " と通話中";
+    acc.style.display = "none"; hang.textContent = "終了";
+    stopRinger();
+  }
 }
 function hideCallUI(){
+  stopRinger();
   const ui = document.getElementById("callUI");
   if(ui) ui.style.display = "none";
   const rv = document.getElementById("remoteV"); if(rv) rv.srcObject = null;
