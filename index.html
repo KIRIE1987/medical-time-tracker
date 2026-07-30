@@ -42,6 +42,26 @@
     box-shadow:0 2px 8px rgba(0,0,0,.2);}
   .count-chip b{font-size:20px; margin-left:5px;}
 
+  /* Web電話 */
+  #callStrip{display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:10px;}
+  .cs-label{font-weight:800; font-size:14px; color:var(--accent);}
+  .cstn{border:2px solid var(--line); border-radius:16px; padding:7px 14px; font-size:13.5px; font-weight:800; background:var(--card);}
+  .cstn.idle{border-color:#2e7d32; color:#2e7d32;}
+  .cstn.busy{border-color:#c62828; color:#c62828;}
+  .cstn.me{opacity:.6; cursor:default;}
+  .call-bg{position:fixed; inset:0; z-index:3000; background:rgba(10,15,30,.93);
+    display:flex; align-items:center; justify-content:center;}
+  .call-card{width:min(92vw, 720px); text-align:center; color:#fff;}
+  #callTitle{font-size:21px; font-weight:800; margin-bottom:12px;}
+  #callTitle.ringing{animation:pulse 1s ease-in-out infinite;}
+  .call-videos{position:relative;}
+  #remoteV{width:100%; border-radius:14px; background:#000; min-height:240px;}
+  #localV{position:absolute; right:10px; bottom:10px; width:24%; border-radius:10px;
+    border:2px solid rgba(255,255,255,.3); background:#000;}
+  .call-btns{margin-top:14px; display:flex; gap:12px; justify-content:center;}
+  .call-accept{background:#2e7d32; color:#fff; border:none; font-size:17px; font-weight:800; padding:13px 38px; border-radius:26px;}
+  .call-hang{background:#c62828; color:#fff; border:none; font-size:17px; font-weight:800; padding:13px 38px; border-radius:26px;}
+
   /* 部署ステータスボード */
   .depts{display:flex; gap:12px; flex-wrap:wrap; margin-bottom:16px;}
   .dept{background:var(--card); border:1px solid var(--line); border-radius:14px; padding:0; flex:1; min-width:250px; overflow:hidden;}
@@ -275,6 +295,21 @@
 </header>
 <main id="casesWrap"></main>
 
+<!-- Web電話（Room間通話） -->
+<div id="callUI" class="call-bg" style="display:none">
+  <div class="call-card">
+    <div id="callTitle"></div>
+    <div class="call-videos">
+      <video id="remoteV" autoplay playsinline></video>
+      <video id="localV" autoplay playsinline muted></video>
+    </div>
+    <div class="call-btns">
+      <button id="btnAccept" class="call-accept" onclick="acceptCall()">応答</button>
+      <button id="btnHang" class="call-hang" onclick="hangUp()">終了</button>
+    </div>
+  </div>
+</div>
+
 <!-- 終了症例（アーカイブ） -->
 <div class="modal-bg" id="archiveModal">
   <div class="modal" style="max-width:760px">
@@ -345,9 +380,9 @@
     <p class="hint">Firebaseコンソールで取得した firebaseConfig を貼り付けてください（付属のREADME参照）。空欄の場合はこの端末だけのローカルモードで動作します。</p>
     <textarea id="setFbConfig" placeholder='{ "apiKey": "...", "databaseURL": "https://xxx.firebasedatabase.app", ... }'></textarea>
     <div class="frow" style="margin-top:8px"><label>ルーム表示名（画面に出る名前）</label><input type="text" id="setRoom" placeholder="救急チーム" style="flex:1"></div>
-    <div class="frow"><label>この端末の名前（任意）</label><input type="text" id="setDevName" placeholder="例: CT室・救外1・アンギオ室" style="flex:1"></div>
+    <div class="frow"><label>この端末の名前（通話するなら必須）</label><input type="text" id="setDevName" placeholder="例: Room1・救急外来・アンギオ室" style="flex:1"></div>
     <div class="frow"><label>接続キー（全拠点で同じものを）</label><input type="text" id="setRoomKey" placeholder="推測されにくい文字列" style="flex:1"><button class="btn small" onclick="genRoomKey()">🎲 生成</button></div>
-    <p class="hint">端末名を付けると、他端末へのアラートや部署ステータスの更新表示に「どの端末が操作したか」が表示されます。端末ごとの設定で同期されません。</p>
+    <p class="hint">端末名はこの端末の「名札」です。通話欄への表示（例：📞 Room1）、アラートの操作元表示、部署ステータスの更新元表示に使われます。<b>名前のない端末は通話に参加できません。</b>設置場所ごとに重複しない名前を付けてください（端末ごとの設定・同期されません）。</p>
     <p class="hint">接続キーが実際のデータの置き場所になります。「🎲 生成」で推測不能な文字列を作り、他拠点には表示名とキーの両方を伝えてください。キーを変えると別ルーム扱いになります。</p>
     </div>
 
@@ -408,11 +443,10 @@ function PRESETS(){
 /* 部署ステータスの初期値 */
 function DEFAULT_DEPTS(){
   return [
-    { id:"er", name:"救急部", current:0, statuses:[
-      { label:"受け入れ可",   color:"#2e7d32" },
-      { label:"要相談",       color:"#f9a825" },
-      { label:"受け入れ不可", color:"#c62828", blink:true } ]},
-    { id:"angio", name:"アンギオ室", current:1, statuses:[
+    { id:"room1", name:"Room1", current:1, statuses:[
+      { label:"使用中", color:"#c62828", blink:true },
+      { label:"未使用", color:"#2e7d32" } ]},
+    { id:"room2", name:"Room2", current:1, statuses:[
       { label:"使用中", color:"#c62828", blink:true },
       { label:"未使用", color:"#2e7d32" } ]}
   ];
@@ -592,6 +626,7 @@ function connectFirebase(conf, key, label){
         firebase.database().ref(".info/connected").on("value", s => {
           if(fbReady) setBadge(s.val() ? "online" : "err", s.val() ? "同期中: "+disp : "再接続中…");
         });
+        initCallSystem(roomKey);
         resolve();
       }catch(e){ reject(e); }
     }).catch(reject);
@@ -1012,6 +1047,205 @@ function togglePrep(id, stepId){
   }
 }
 
+/* ================= Web電話（Room間1対1通話・WebRTC） ================= */
+let callsRef = null, myStationRef = null;
+let stations = {};                 // 全端末の通話状態
+let pc = null, localStream = null;
+let curSession = null;             // {id, role, peerId, peerName, timer, answered}
+let incoming = null;               // {id, from, fromName, offer}
+let candRefs = [];
+
+function initCallSystem(roomKey){
+  try{
+    callsRef = firebase.database().ref("calls/" + roomKey);
+    registerStation();
+    callsRef.child("stations").on("value", s => { stations = s.val() || {}; renderCallStrip(); });
+    callsRef.child("sessions").on("child_added", s => handleSessionAdded(s));
+    callsRef.child("sessions").on("child_changed", s => handleSessionChanged(s));
+    firebase.database().ref(".info/connected").on("value", s => { if(s.val()) registerStation(); });
+  }catch(e){}
+}
+function registerStation(){
+  if(!callsRef) return;
+  const name = devName();
+  if(!name){
+    if(myStationRef){ myStationRef.remove(); myStationRef = null; }
+    renderCallStrip();
+    return;
+  }
+  myStationRef = callsRef.child("stations/" + CLIENT_ID);
+  myStationRef.onDisconnect().remove();
+  myStationRef.update({ name, state: "idle", peer: null, t: Date.now() });
+}
+function setMyCallState(state, peer){
+  if(myStationRef) myStationRef.update({ state, peer: peer || null, t: Date.now() });
+}
+function renderCallStrip(){
+  const el = document.getElementById("callStrip");
+  if(!el) return;
+  if(!callsRef){ el.innerHTML = ""; return; }
+  let html = '<span class="cs-label">📞 通話</span>';
+  const arr = Object.keys(stations).map(id => Object.assign({id}, stations[id]))
+    .sort((a,b) => (a.name||"").localeCompare(b.name||""));
+  for(const st of arr){
+    const me = st.id === CLIENT_ID;
+    let txt, cls;
+    if(st.state === "incall"){ txt = "📞 " + esc(st.name) + "（" + esc(st.peer||"") + "と通話中）"; cls = "busy"; }
+    else if(st.state === "ringing"){ txt = "🔔 " + esc(st.name) + " 呼び出し中"; cls = "busy"; }
+    else { txt = "🟢 " + esc(st.name); cls = "idle"; }
+    html += '<button class="cstn ' + cls + (me ? " me" : "") + '" ' + (me ? "disabled" : "") +
+      ' onclick="startCall(\'' + st.id + '\')">' + txt + (me ? "（この端末）" : "") + '</button>';
+  }
+  if(!arr.length) html += '<span class="hint">通話できる端末がまだありません</span>';
+  if(!devName()) html += '<span class="hint">⚙設定で「この端末の名前」を付けると通話に参加できます</span>';
+  el.innerHTML = html;
+}
+function newPeer(sid){
+  const p = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+  p.onicecandidate = e => {
+    if(e.candidate && callsRef)
+      callsRef.child("sessions/" + sid + "/cand/" + CLIENT_ID).push(JSON.parse(JSON.stringify(e.candidate)));
+  };
+  p.ontrack = e => {
+    const v = document.getElementById("remoteV");
+    if(v && e.streams && e.streams[0]) v.srcObject = e.streams[0];
+  };
+  return p;
+}
+function listenCand(sid, peerId){
+  const ref = callsRef.child("sessions/" + sid + "/cand/" + peerId);
+  ref.on("child_added", s => { try{ if(pc) pc.addIceCandidate(new RTCIceCandidate(s.val())); }catch(e){} });
+  candRefs.push(ref);
+}
+async function startCall(targetId){
+  if(!callsRef || targetId === CLIENT_ID || curSession || incoming) return;
+  const st = stations[targetId];
+  if(!st) return;
+  if(st.state !== "idle"){
+    showBanner("", "話し中です", esc(st.name) + " は" + (st.peer ? " " + esc(st.peer) + " と通話中" : "応答中") + "です", "plain", 3200);
+    return;
+  }
+  if(!devName()){ alert("⚙設定で「この端末の名前」を付けると発信できます。"); return; }
+  try{
+    localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+  }catch(e){ alert("カメラ・マイクを利用できません。ブラウザの許可設定を確認してください。"); return; }
+  const v = document.getElementById("localV"); if(v) v.srcObject = localStream;
+  const sid = uid();
+  curSession = { id: sid, role: "caller", peerId: targetId, peerName: st.name, answered: false };
+  pc = newPeer(sid);
+  localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+  listenCand(sid, targetId);
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  callsRef.child("sessions/" + sid).set({
+    from: CLIENT_ID, fromName: devName(), to: targetId, toName: st.name,
+    state: "ringing", offer: { type: offer.type, sdp: offer.sdp }, t: Date.now()
+  });
+  setMyCallState("ringing", st.name);
+  showCallUI("calling", st.name);
+  curSession.timer = setTimeout(() => {
+    if(curSession && curSession.id === sid && !curSession.answered){
+      callsRef.child("sessions/" + sid).update({ state: "ended" });
+      endLocal("応答がありませんでした");
+    }
+  }, 30000);
+}
+function handleSessionAdded(snap){
+  const s = snap.val();
+  if(!s || s.to !== CLIENT_ID || s.state !== "ringing") return;
+  if(Date.now() - (s.t || 0) > 60000) return;              // 古いセッションは無視
+  if(curSession || incoming){                              // すでに通話中 → 話し中で返す
+    callsRef.child("sessions/" + snap.key).update({ state: "busy" });
+    return;
+  }
+  incoming = { id: snap.key, from: s.from, fromName: s.fromName, offer: s.offer };
+  setMyCallState("ringing", s.fromName);
+  showCallUI("incoming", s.fromName);
+}
+async function acceptCall(){
+  if(!incoming) return;
+  try{
+    localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+  }catch(e){ alert("カメラ・マイクを利用できません。"); return; }
+  const v = document.getElementById("localV"); if(v) v.srcObject = localStream;
+  const inc = incoming;
+  curSession = { id: inc.id, role: "callee", peerId: inc.from, peerName: inc.fromName, answered: true };
+  incoming = null;
+  pc = newPeer(inc.id);
+  localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+  listenCand(inc.id, inc.from);
+  await pc.setRemoteDescription(new RTCSessionDescription(inc.offer));
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+  callsRef.child("sessions/" + inc.id).update({ state: "active", answer: { type: answer.type, sdp: answer.sdp } });
+  setMyCallState("incall", inc.fromName);
+  showCallUI("active", inc.fromName);
+}
+function handleSessionChanged(snap){
+  const s = snap.val();
+  if(!s) return;
+  if(incoming && snap.key === incoming.id && (s.state === "ended" || s.state === "busy")){
+    incoming = null; setMyCallState("idle"); hideCallUI();   // 相手が切った
+    return;
+  }
+  if(!curSession || snap.key !== curSession.id) return;
+  if(curSession.role === "caller" && s.state === "active" && s.answer && !curSession.answered){
+    curSession.answered = true;
+    pc.setRemoteDescription(new RTCSessionDescription(s.answer));
+    setMyCallState("incall", curSession.peerName);
+    showCallUI("active", curSession.peerName);
+  } else if(s.state === "busy"){
+    endLocal("話し中でした");
+  } else if(s.state === "rejected"){
+    endLocal("応答されませんでした");
+  } else if(s.state === "ended"){
+    endLocal(null);
+  }
+}
+function hangUp(){
+  if(incoming){                                            // 着信への拒否
+    callsRef.child("sessions/" + incoming.id).update({ state: "rejected" });
+    incoming = null; setMyCallState("idle"); hideCallUI();
+    return;
+  }
+  if(curSession){
+    callsRef.child("sessions/" + curSession.id).update({ state: "ended" });
+    endLocal(null);
+  }
+}
+function endLocal(msg){
+  if(curSession && curSession.timer) clearTimeout(curSession.timer);
+  candRefs.forEach(r => { try{ r.off(); }catch(e){} });
+  candRefs = [];
+  if(pc){ try{ pc.close(); }catch(e){} pc = null; }
+  if(localStream){ localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+  const wasCaller = curSession && curSession.role === "caller";
+  const sid = curSession && curSession.id;
+  curSession = null; incoming = null;
+  setMyCallState("idle");
+  hideCallUI();
+  if(wasCaller && sid && callsRef) setTimeout(() => { try{ callsRef.child("sessions/" + sid).remove(); }catch(e){} }, 3000);
+  if(msg) showBanner("", msg, "", "plain", 3200);
+}
+function showCallUI(mode, name){
+  const ui = document.getElementById("callUI");
+  const title = document.getElementById("callTitle");
+  const acc = document.getElementById("btnAccept");
+  const hang = document.getElementById("btnHang");
+  if(!ui) return;
+  ui.style.display = "flex";
+  title.className = mode === "active" ? "" : "ringing";
+  if(mode === "calling"){ title.textContent = "📞 " + name + " を呼び出し中…"; acc.style.display = "none"; hang.textContent = "終了"; }
+  else if(mode === "incoming"){ title.textContent = "🔔 " + name + " から着信"; acc.style.display = ""; hang.textContent = "拒否"; }
+  else { title.textContent = name + " と通話中"; acc.style.display = "none"; hang.textContent = "終了"; }
+}
+function hideCallUI(){
+  const ui = document.getElementById("callUI");
+  if(ui) ui.style.display = "none";
+  const rv = document.getElementById("remoteV"); if(rv) rv.srcObject = null;
+  const lv = document.getElementById("localV"); if(lv) lv.srcObject = null;
+}
+
 /* ================= 状況テキスト ================= */
 function statusText(c){
   const proto = getProto(c);
@@ -1067,15 +1301,17 @@ function render(){
   const closedCount = all.filter(c => c.closed).length;
   $("#archiveBtn").textContent = "📁 終了症例（" + closedCount + "）";
   const cases = all.filter(c => !c.closed).sort((a,b)=> (b.createdAt||"").localeCompare(a.createdAt||""));
-  const strip = '<div class="topboard" id="topboard">' + renderCounts(cases) + renderDepts() + '</div>';
+  const strip = '<div class="topboard" id="topboard">' + renderCounts(cases) + renderDepts() + '<div id="callStrip"></div></div>';
   if(!cases.length){
     wrap.innerHTML = strip + '<div class="empty">「＋ 新規症例」で記録を開始します。<br>患者情報は入力せず、匿名ラベルのみ使用してください。' +
       (closedCount ? '<br><br>終了した症例は「📁 終了症例」から確認できます。' : '') + '</div>';
     fixTopboard();
+    renderCallStrip();
     return;
   }
   wrap.innerHTML = strip + cases.map(renderCase).join("");
   fixTopboard();
+  renderCallStrip();
   tick();
 }
 
@@ -1647,6 +1883,7 @@ function saveSettings(){
     if(!p.steps.find(s=>s.id===p.goalStepId)) p.goalStepId = p.steps[p.steps.length-1].id;
   }
   try{ localStorage.setItem(LS_DEV, $("#setDevName").value.trim()); }catch(e){}
+  registerStation();   // 端末名の変更を通話システムに反映
   const confText = $("#setFbConfig").value;
   const conf = parseConfig(confText);
   const room = $("#setRoom").value.trim();
